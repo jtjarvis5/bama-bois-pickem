@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 import { getWeeklyGames, getCachedGamesByWeek } from './services/gameCache';
 import { getCurrentWeekString, isGameLocked } from './utils/getCurrentWeek';
-import { calculateSeasonStandings, LEAGUE_MEMBERS } from './utils/leaderboard';
+import { calculateSeasonStandings } from './utils/leaderboard';
 import { copyPicksToClipboard } from './utils/exportHelpers';
 import PickMatrix from './components/PickMatrix';
 import AuthModal from './components/AuthModal';
@@ -15,8 +15,43 @@ function Chevron() {
   );
 }
 
+function LockIcon() {
+  return (
+    <svg className="w-3 h-3 text-crimson" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+  );
+}
+
+// Helper to evaluate if a pick won, lost, or pushed
+function getPickStatus(game, pick, type) {
+  if (!game || game.status !== 'FINAL' || !pick) return null;
+
+  if (type === 'spread' && pick.spread) {
+    const homeMargin = game.homeScore - game.awayScore;
+    const spreadCovered = pick.spread === 'home' 
+      ? homeMargin + game.homeSpread 
+      : -homeMargin + game.awaySpread;
+    
+    if (spreadCovered > 0) return 'win';
+    if (spreadCovered < 0) return 'loss';
+    return 'push';
+  }
+
+  if (type === 'total' && pick.total && game.overUnder != null) {
+    const totalPoints = game.homeScore + game.awayScore;
+    if (pick.total === 'over' && totalPoints > game.overUnder) return 'win';
+    if (pick.total === 'under' && totalPoints < game.overUnder) return 'win';
+    if (totalPoints === game.overUnder) return 'push';
+    return 'loss';
+  }
+
+  return null;
+}
+
 export default function App() {
-  const [selectedUser, setSelectedUser] = useState('Austin');
+  const [selectedUser, setSelectedUser] = useState('');
   const [selectedWeek, setSelectedWeek] = useState(getCurrentWeekString());
   const [games, setGames] = useState([]);
   const [picks, setPicks] = useState({});
@@ -34,16 +69,6 @@ export default function App() {
   const weekNum = parseInt(selectedWeek.split(' ')[1], 10);
 
   useEffect(() => {
-    const savedUser = localStorage.getItem('currentUser');
-    if (savedUser) {
-      try {
-        const parsed = JSON.parse(savedUser);
-        setCurrentUser(parsed);
-        setSelectedUser(parsed.name);
-      } catch (err) {
-        console.error('Failed to parse saved user:', err);
-      }
-    }
     fetchUsersList();
   }, []);
 
@@ -51,6 +76,25 @@ export default function App() {
     const { data, error } = await supabase.from('users').select('id, name');
     if (!error && data && data.length > 0) {
       setUsersList(data);
+      
+      // Handle LocalStorage Session validation
+      const savedUser = localStorage.getItem('currentUser');
+      if (savedUser) {
+        try {
+          const parsed = JSON.parse(savedUser);
+          const userExists = data.some(u => u.name === parsed.name);
+          if (userExists) {
+            setCurrentUser(parsed);
+            if (!selectedUser) setSelectedUser(parsed.name);
+          } else {
+            handleLogout();
+          }
+        } catch (err) {
+          console.error('Failed to parse saved user:', err);
+        }
+      } else if (!selectedUser) {
+        setSelectedUser(data[0].name); // Default to first user if no one is logged in
+      }
     }
   };
 
@@ -71,10 +115,7 @@ export default function App() {
         }
       } catch (err) {
         console.error("Failed to load games:", err);
-        const msg = err.message === 'Load failed' 
-          ? 'Network request failed. Please check Vercel Environment Variables (API Key) or disable ad-blockers.' 
-          : err.message;
-        setApiError(`API Exception: ${msg}`);
+        setApiError(`API Exception: ${err.message}`);
       }
     }
     loadGames();
@@ -89,7 +130,7 @@ export default function App() {
         setPicks(currentUserData?.picks || {});
       }
     }
-    loadInitialPicks();
+    if (selectedUser) loadInitialPicks();
 
     const picksChannel = supabase
       .channel(`public:user_picks:week_${weekNum}`)
@@ -115,40 +156,34 @@ export default function App() {
 
   useEffect(() => {
     async function loadSeasonStandingsData() {
-      const [{ data: picksData, error: picksError }, cachedByWeek] = await Promise.all([
+      const [{ data: picksData }, cachedByWeek] = await Promise.all([
         supabase.from('user_picks').select('*'),
         getCachedGamesByWeek(2026),
       ]);
-      if (picksError) console.error('Failed to load season picks:', picksError);
       if (picksData) setSeasonPicks(picksData);
       setGamesByWeek(cachedByWeek);
     }
     loadSeasonStandingsData();
   }, [weekNum]);
 
-  // Combined list of default + registered users
-  const availableMembers = Array.from(
-    new Set([...LEAGUE_MEMBERS, ...usersList.map((u) => u.name)])
-  );
+  const availableMembers = usersList.map((u) => u.name);
 
-  const handlePick = async (gameId, field, value) => {
-    if (!currentUser) {
-      setShowAuthModal(true);
-      return;
-    }
-
-    if (currentUser.name !== selectedUser) {
-      setSelectedUser(currentUser.name);
-    }
-
-    const activeUser = currentUser.name;
-    const newPicks = { ...picks, [gameId]: { ...picks[gameId], [field]: value } };
-    setPicks(newPicks);
+  const saveToSupabase = async (activeUser, newPicks) => {
     setIsSaving(true);
+    const lockedId = Object.keys(newPicks).find((id) => newPicks[id]?.isLock);
+    
+    // Defensive payload ensuring all constraints are met
+    const payload = {
+      user_name: activeUser,
+      week: weekNum,
+      picks: newPicks,
+      lock_game_id: lockedId ? parseInt(lockedId, 10) : 0,
+      tiebreaker: 0,
+    };
+
     try {
       const { error } = await supabase.from('user_picks').upsert(
-        { user_name: activeUser, week: weekNum, picks: newPicks },
-        { onConflict: 'user_name,week' }
+        payload, { onConflict: 'user_name,week' }
       );
       if (error) throw error;
     } catch (err) {
@@ -158,17 +193,19 @@ export default function App() {
     setIsSaving(false);
   };
 
+  const handlePick = async (gameId, field, value) => {
+    if (!currentUser) return setShowAuthModal(true);
+    if (currentUser.name !== selectedUser) setSelectedUser(currentUser.name);
+
+    const newPicks = { ...picks, [gameId]: { ...picks[gameId], [field]: value } };
+    setPicks(newPicks);
+    await saveToSupabase(currentUser.name, newPicks);
+  };
+
   const handleLockToggle = async (targetGameId) => {
-    if (!currentUser) {
-      setShowAuthModal(true);
-      return;
-    }
+    if (!currentUser) return setShowAuthModal(true);
+    if (currentUser.name !== selectedUser) setSelectedUser(currentUser.name);
 
-    if (currentUser.name !== selectedUser) {
-      setSelectedUser(currentUser.name);
-    }
-
-    const activeUser = currentUser.name;
     const isCurrentlyLocked = picks[targetGameId]?.isLock || false;
     const updatedPicks = {};
     Object.keys(picks).forEach((gameId) => {
@@ -178,18 +215,7 @@ export default function App() {
       updatedPicks[targetGameId] = { ...updatedPicks[targetGameId], isLock: true };
     }
     setPicks(updatedPicks);
-    setIsSaving(true);
-    try {
-      const { error } = await supabase.from('user_picks').upsert(
-        { user_name: activeUser, week: weekNum, picks: updatedPicks },
-        { onConflict: 'user_name,week' }
-      );
-      if (error) throw error;
-    } catch (err) {
-      console.error('Failed to save lock:', err);
-      alert(`Lock didn't save: ${err.message || 'unknown error'}`);
-    }
-    setIsSaving(false);
+    await saveToSupabase(currentUser.name, updatedPicks);
   };
 
   const standings = calculateSeasonStandings(seasonPicks, gamesByWeek, availableMembers);
@@ -209,7 +235,7 @@ export default function App() {
             <div>
               {currentUser ? (
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-white/80">
+                  <span className="text-xs text-white/80 hidden sm:inline">
                     Logged in as <strong className="text-white font-semibold">{currentUser.name}</strong>
                   </span>
                   <button
@@ -282,11 +308,9 @@ export default function App() {
           </div>
         ) : null}
 
-        {isSaving && (
-          <div className="mb-3 text-xs text-muted">Saving…</div>
-        )}
+        {isSaving && <div className="mb-3 text-xs text-muted font-medium">Saving…</div>}
 
-        <div className="mb-4 rounded-card bg-crimson text-white px-4 py-3.5 flex items-center justify-between gap-3">
+        <div className="mb-4 rounded-card bg-crimson text-white px-4 py-3.5 flex items-center justify-between gap-3 shadow-sm">
           <div className="text-sm min-w-0">
             <span className="text-white/70">Lock of the week — </span>
             <span className="font-medium">
@@ -301,57 +325,67 @@ export default function App() {
           </button>
         </div>
 
-        {apiError && (
-          <div className="mb-6 rounded-card border border-amber-300 bg-amber-50 px-4 py-3">
-            <p className="text-sm font-semibold text-amber-900">Debug notice</p>
-            <p className="text-sm text-amber-800 mt-0.5">{apiError}</p>
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-10">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
           {games.map(game => {
             const lockedByKickoff = isGameLocked(game.startDate);
-            const spreadBtnClass = (side) =>
-              `flex-1 py-2.5 rounded-lg border text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                picks[game.id]?.spread === side ? 'bg-crimson border-crimson text-white' : 'border-line text-ink hover:border-ink/30'
-              }`;
-            const totalBtnClass = (side) =>
-              `flex-1 py-2.5 rounded-lg border text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                picks[game.id]?.total === side ? 'bg-crimson border-crimson text-white' : 'border-line text-ink hover:border-ink/30'
-              }`;
-            const statusLabel = game.status === 'FINAL' ? 'Final' : lockedByKickoff ? 'Locked' : 'Upcoming';
-            const statusDot = game.status === 'FINAL' ? 'bg-ink' : lockedByKickoff ? 'bg-crimson' : 'bg-muted/40';
+            const isFinal = game.status === 'FINAL';
+            
+            // Dynamic Button Styling for Win/Loss/Push visualization
+            const getBtnClass = (type, side) => {
+              const isSelected = picks[game.id]?.[type] === side;
+              if (!isSelected) return 'flex-1 py-2.5 rounded-lg border border-line text-ink hover:border-ink/30 text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-white';
+              
+              if (!isFinal) return 'flex-1 py-2.5 rounded-lg border border-crimson bg-crimson text-white text-sm font-medium transition-colors disabled:opacity-75 disabled:cursor-not-allowed';
+              
+              const status = getPickStatus(game, picks[game.id], type);
+              if (status === 'win') return 'flex-1 py-2.5 rounded-lg border border-emerald-500 bg-emerald-500 text-white text-sm font-medium shadow-sm';
+              if (status === 'loss') return 'flex-1 py-2.5 rounded-lg border border-red-500 bg-red-500 text-white text-sm font-medium opacity-80';
+              if (status === 'push') return 'flex-1 py-2.5 rounded-lg border border-gray-500 bg-gray-500 text-white text-sm font-medium';
+              
+              return 'flex-1 py-2.5 rounded-lg border border-crimson bg-crimson text-white text-sm font-medium';
+            };
+
+            const cardWrapperClass = isFinal 
+              ? 'bg-paper/40 border-line/60 opacity-90'
+              : lockedByKickoff 
+                ? 'bg-gray-50/80 border-line opacity-80' 
+                : 'bg-white border-line shadow-sm';
 
             return (
-              <div key={game.id} className={`rounded-card border border-line bg-white p-4 ${lockedByKickoff ? 'opacity-70' : ''}`}>
+              <div key={game.id} className={`rounded-xl border p-4 transition-all ${cardWrapperClass}`}>
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs text-muted">{game.time}</span>
-                  <span className="flex items-center gap-1.5 text-xs text-muted">
-                    <span className={`w-1.5 h-1.5 rounded-full ${statusDot}`} />
-                    {statusLabel}
+                  <span className="text-xs text-muted font-medium">{game.time}</span>
+                  <span className="flex items-center gap-1.5 text-xs text-muted font-medium">
+                    {isFinal ? (
+                      <><span className="w-1.5 h-1.5 rounded-full bg-ink" />Final</>
+                    ) : lockedByKickoff ? (
+                      <><LockIcon />Locked</>
+                    ) : (
+                      <><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Upcoming</>
+                    )}
                   </span>
                 </div>
 
-                {game.status === 'FINAL' && (
-                  <div className="text-xs text-muted mb-3">
-                    {game.awayTeam} {game.awayScore} &ndash; {game.homeScore} {game.homeTeam}
+                {isFinal && (
+                  <div className="text-sm font-display font-semibold text-ink mb-3 bg-paper/50 py-2 px-3 rounded-lg text-center">
+                    {game.awayTeam} <span className="text-crimson mx-1">{game.awayScore}</span> - <span className="text-crimson mx-1">{game.homeScore}</span> {game.homeTeam}
                   </div>
                 )}
 
-                <div className="text-xs font-medium text-muted mb-1.5">Spread</div>
+                <div className="text-xs font-semibold text-muted mb-1.5 uppercase tracking-wide">Spread</div>
                 <div className="flex items-center gap-2 mb-4">
                   <button
                     disabled={lockedByKickoff}
                     onClick={() => handlePick(game.id, 'spread', 'away')}
-                    className={spreadBtnClass('away')}
+                    className={getBtnClass('spread', 'away')}
                   >
                     {game.awayTeam} {game.awaySpread > 0 ? `+${game.awaySpread}` : game.awaySpread}
                   </button>
-                  <span className="text-xs text-muted">@</span>
+                  <span className="text-xs text-muted font-medium">@</span>
                   <button
                     disabled={lockedByKickoff}
                     onClick={() => handlePick(game.id, 'spread', 'home')}
-                    className={spreadBtnClass('home')}
+                    className={getBtnClass('spread', 'home')}
                   >
                     {game.homeTeam} {game.homeSpread > 0 ? `+${game.homeSpread}` : game.homeSpread}
                   </button>
@@ -359,19 +393,19 @@ export default function App() {
 
                 {game.overUnder != null ? (
                   <>
-                    <div className="text-xs font-medium text-muted mb-1.5">Total</div>
+                    <div className="text-xs font-semibold text-muted mb-1.5 uppercase tracking-wide">Total</div>
                     <div className="flex items-center gap-2 mb-4">
                       <button
                         disabled={lockedByKickoff}
                         onClick={() => handlePick(game.id, 'total', 'over')}
-                        className={totalBtnClass('over')}
+                        className={getBtnClass('total', 'over')}
                       >
                         Over {game.overUnder}
                       </button>
                       <button
                         disabled={lockedByKickoff}
                         onClick={() => handlePick(game.id, 'total', 'under')}
-                        className={totalBtnClass('under')}
+                        className={getBtnClass('total', 'under')}
                       >
                         Under {game.overUnder}
                       </button>
@@ -384,11 +418,13 @@ export default function App() {
                 <button
                   disabled={lockedByKickoff || !picks[game.id]?.spread}
                   onClick={() => handleLockToggle(game.id)}
-                  className={`w-full py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                    picks[game.id]?.isLock ? 'bg-ink text-white' : 'border border-line text-muted hover:border-ink/30'
+                  className={`w-full py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                    picks[game.id]?.isLock 
+                      ? 'bg-ink text-white shadow-md' 
+                      : 'bg-white border border-line text-muted hover:border-ink/30'
                   }`}
                 >
-                  {picks[game.id]?.isLock ? 'Lock of the week' : 'Set as lock'}
+                  {picks[game.id]?.isLock ? 'Lock of the week ✓' : 'Set as lock'}
                 </button>
               </div>
             );
@@ -404,29 +440,29 @@ export default function App() {
         />
 
         <h2 className="font-display text-lg font-semibold text-ink mt-10 mb-3">Season standings</h2>
-        <div className="rounded-card border border-line bg-white overflow-hidden overflow-x-auto">
+        <div className="rounded-card border border-line bg-white overflow-hidden overflow-x-auto shadow-sm">
           <table className="w-full text-left border-collapse text-sm">
             <thead>
-              <tr className="border-b border-line text-xs text-muted">
-                <th className="p-3 font-medium">Rank</th>
-                <th className="p-3 font-medium">Member</th>
-                <th className="p-3 font-medium">W-L-P</th>
-                <th className="p-3 font-medium">Lock bonuses</th>
-                <th className="p-3 font-medium text-right">Points</th>
+              <tr className="border-b border-line bg-paper/30 text-xs text-muted">
+                <th className="p-3 font-semibold uppercase tracking-wider">Rank</th>
+                <th className="p-3 font-semibold uppercase tracking-wider">Member</th>
+                <th className="p-3 font-semibold uppercase tracking-wider">W-L-P</th>
+                <th className="p-3 font-semibold uppercase tracking-wider">Lock bonuses</th>
+                <th className="p-3 font-semibold uppercase tracking-wider text-right">Points</th>
               </tr>
             </thead>
             <tbody>
               {standings.map((member, idx) => (
-                <tr key={member.userName} className="border-b border-line last:border-0">
+                <tr key={member.userName} className="border-b border-line last:border-0 hover:bg-paper/30 transition-colors">
                   <td className="p-3 font-display font-semibold text-ink">{idx + 1}</td>
-                  <td className="p-3">{member.userName}</td>
+                  <td className="p-3 font-medium">{member.userName}</td>
                   <td className="p-3 text-muted">{member.wins}-{member.losses}-{member.pushes}</td>
                   <td className="p-3">
                     {member.lockBonuses > 0
-                      ? <span className="text-crimson font-medium">+{member.lockBonuses}</span>
-                      : <span className="text-muted">—</span>}
+                      ? <span className="text-emerald-600 font-semibold bg-emerald-50 px-2 py-1 rounded-full text-xs">+{member.lockBonuses}</span>
+                      : <span className="text-muted/50">—</span>}
                   </td>
-                  <td className="p-3 text-right font-display font-semibold text-lg text-ink">{member.totalPoints}</td>
+                  <td className="p-3 text-right font-display font-bold text-lg text-ink">{member.totalPoints}</td>
                 </tr>
               ))}
             </tbody>
@@ -436,11 +472,7 @@ export default function App() {
 
       {showAuthModal && (
         <AuthModal
-          users={
-            usersList.length > 0
-              ? usersList
-              : LEAGUE_MEMBERS.map((m) => ({ id: m.toLowerCase().replace(/\s+/g, '_'), name: m }))
-          }
+          users={usersList}
           onSuccess={(user) => {
             setCurrentUser(user);
             setSelectedUser(user.name);
