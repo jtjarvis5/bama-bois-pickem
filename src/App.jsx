@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { fetchWeeklyGames } from './services/cfbApi';
+import { getWeeklyGames } from './services/gameCache';
 import { getCurrentWeekString, isGameLocked } from './utils/getCurrentWeek';
 import { calculateStandings, LEAGUE_MEMBERS } from './utils/leaderboard';
 import { copyPicksToClipboard } from './utils/exportHelpers';
@@ -23,7 +23,7 @@ export default function App() {
     async function loadGames() {
       try {
         setApiError(null);
-        const liveGames = await fetchWeeklyGames(2026, weekNum);
+        const liveGames = await getWeeklyGames(2026, weekNum);
         console.log("Loaded live games:", liveGames);
         if (liveGames && liveGames.length > 0) {
           setGames(liveGames);
@@ -71,14 +71,21 @@ export default function App() {
     return () => supabase.removeChannel(picksChannel);
   }, [weekNum, selectedUser]);
 
-  const handlePick = async (gameId, spreadChoice) => {
-    const newPicks = { ...picks, [gameId]: { ...picks[gameId], spread: spreadChoice } };
+  // field is 'spread' ('home'/'away') or 'total' ('over'/'under')
+  const handlePick = async (gameId, field, value) => {
+    const newPicks = { ...picks, [gameId]: { ...picks[gameId], [field]: value } };
     setPicks(newPicks);
     setIsSaving(true);
-    await supabase.from('user_picks').upsert(
-      { user_name: selectedUser, week: weekNum, picks: newPicks, updated_at: new Date().toISOString() },
-      { onConflict: 'user_name,week' }
-    );
+    try {
+      const { error } = await supabase.from('user_picks').upsert(
+        { user_name: selectedUser, week: weekNum, picks: newPicks, updated_at: new Date().toISOString() },
+        { onConflict: 'user_name,week' }
+      );
+      if (error) throw error;
+    } catch (err) {
+      console.error('Failed to save pick:', err);
+      alert('Your pick may not have saved — check your connection and try again.');
+    }
     setIsSaving(false);
   };
 
@@ -147,10 +154,11 @@ export default function App() {
                 <span>{game.time}</span>
                 {lockedByKickoff && <span className="text-red-500 font-bold">🔒 Kickoff Locked</span>}
               </div>
+              <div className="text-xs font-bold uppercase tracking-wide text-gray-400 mb-1">Against the Spread</div>
               <div className="flex justify-between items-center mb-4">
                 <button
                   disabled={lockedByKickoff}
-                  onClick={() => handlePick(game.id, 'away')}
+                  onClick={() => handlePick(game.id, 'spread', 'away')}
                   className={`flex-1 py-2 rounded border font-semibold ${picks[game.id]?.spread === 'away' ? 'bg-blue-600 text-white' : 'hover:bg-gray-100'}`}
                 >
                   {game.awayTeam} {game.awaySpread > 0 ? `+${game.awaySpread}` : game.awaySpread}
@@ -158,12 +166,37 @@ export default function App() {
                 <span className="mx-2 text-gray-400">@</span>
                 <button
                   disabled={lockedByKickoff}
-                  onClick={() => handlePick(game.id, 'home')}
+                  onClick={() => handlePick(game.id, 'spread', 'home')}
                   className={`flex-1 py-2 rounded border font-semibold ${picks[game.id]?.spread === 'home' ? 'bg-blue-600 text-white' : 'hover:bg-gray-100'}`}
                 >
                   {game.homeTeam} {game.homeSpread > 0 ? `+${game.homeSpread}` : game.homeSpread}
                 </button>
               </div>
+
+              {game.overUnder != null ? (
+                <>
+                  <div className="text-xs font-bold uppercase tracking-wide text-gray-400 mb-1">Over / Under</div>
+                  <div className="flex justify-between items-center mb-4">
+                    <button
+                      disabled={lockedByKickoff}
+                      onClick={() => handlePick(game.id, 'total', 'over')}
+                      className={`flex-1 py-2 rounded border font-semibold ${picks[game.id]?.total === 'over' ? 'bg-indigo-600 text-white' : 'hover:bg-gray-100'}`}
+                    >
+                      Over {game.overUnder}
+                    </button>
+                    <span className="mx-2 text-gray-400">/</span>
+                    <button
+                      disabled={lockedByKickoff}
+                      onClick={() => handlePick(game.id, 'total', 'under')}
+                      className={`flex-1 py-2 rounded border font-semibold ${picks[game.id]?.total === 'under' ? 'bg-indigo-600 text-white' : 'hover:bg-gray-100'}`}
+                    >
+                      Under {game.overUnder}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="text-xs text-gray-400 italic mb-4">No over/under line available for this game.</div>
+              )}
               <button
                 disabled={lockedByKickoff || !picks[game.id]?.spread}
                 onClick={() => handleLockToggle(game.id)}
