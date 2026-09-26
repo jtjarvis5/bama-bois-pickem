@@ -113,6 +113,8 @@ export async function fetchWeeklyGames(year, week) {
       awaySpread: awaySpread,
       overUnder,
       startDate: g.startDate,
+      homeScore: g.completed ? g.homePoints : null,
+      awayScore: g.completed ? g.awayPoints : null,
       time: new Date(g.startDate).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' }),
       status: g.completed ? 'FINAL' : 'UPCOMING',
       winningSpreadTeam,
