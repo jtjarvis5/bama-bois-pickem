@@ -1,37 +1,50 @@
 const CFBD_API_KEY = import.meta.env.VITE_CFBD_API_KEY;
 const BASE_URL = 'https://api.collegefootballdata.com';
 
-// Helper function to dynamically figure out the current college football week
+// Dynamically calculate the current college football week for 2026
 function getCurrentWeek() {
   const now = new Date();
-  // Approximate Thursday of Week 1 for the 2026 season (August 27, 2026)
+  // Thursday of Week 1 for the 2026 season (August 27, 2026)
   const seasonStart = new Date('2026-08-27T00:00:00Z');
   const diffTime = now - seasonStart;
   const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
   
-  if (diffDays < 0) return 1; // Before season starts, default to Week 1
+  if (diffDays < 0) return 1; 
   const calculatedWeek = Math.floor(diffDays / 7) + 1;
-  // Cap it between week 1 and 15 to stay safe
   return Math.min(Math.max(calculatedWeek, 1), 15);
 }
 
 export async function fetchWeeklyGames(year = 2026, week = getCurrentWeek()) {
   try {
+    console.log(`Fetching CFBD data for Year: ${year}, Week: ${week}`);
+    console.log(`API Key present: ${Boolean(CFBD_API_KEY)}`);
+
     const gamesRes = await fetch(`${BASE_URL}/games?year=${year}&week=${week}&seasonType=regular`, {
       headers: { Authorization: `Bearer ${CFBD_API_KEY}` }
     });
+    
+    if (!gamesRes.ok) {
+      console.error("Games API failed with status:", gamesRes.status);
+      return [];
+    }
+    
     const gamesData = await gamesRes.json();
+    console.log("Games Data Received:", gamesData);
 
     const linesRes = await fetch(`${BASE_URL}/lines?year=${year}&week=${week}&seasonType=regular`, {
       headers: { Authorization: `Bearer ${CFBD_API_KEY}` }
     });
-    const linesData = await linesRes.json();
+    
+    const linesData = linesRes.ok ? await linesRes.json() : [];
+    console.log("Lines Data Received:", linesData);
 
     const linesMap = {};
-    linesData.forEach(item => {
-      const lineObj = item.lines?.find(l => l.provider === 'Bovada') || item.lines?.[0];
-      if (lineObj) linesMap[item.id] = { spread: lineObj.spread };
-    });
+    if (Array.isArray(linesData)) {
+      linesData.forEach(item => {
+        const lineObj = item.lines?.find(l => l.provider === 'Bovada') || item.lines?.[0];
+        if (lineObj) linesMap[item.id] = { spread: lineObj.spread };
+      });
+    }
 
     const formattedGames = gamesData.map(g => {
       const line = linesMap[g.id] || { spread: 0 };
@@ -67,8 +80,7 @@ export async function fetchWeeklyGames(year = 2026, week = getCurrentWeek()) {
     const otherGames = formattedGames.filter(g => !g.isBama).slice(0, 9);
     return bamaGame ? [bamaGame, ...otherGames] : formattedGames.slice(0, 10);
   } catch (err) {
-    console.error("API Error:", err);
+    console.error("API Error caught:", err);
     return [];
   }
 }
-
