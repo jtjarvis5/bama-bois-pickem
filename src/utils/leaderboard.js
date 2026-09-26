@@ -1,94 +1,89 @@
 export const LEAGUE_MEMBERS = ['Austin', 'Bama1', 'Bama2', 'Bama3', 'Bama4'];
 
-function buildCompletedGamesMap(games) {
-  const completed = {};
-  (games || []).forEach((game) => {
-    if (game.status === 'FINAL') {
-      completed[game.id] = {
-        winningTeam: game.winningSpreadTeam || null,
-        winningTotal: game.winningTotal || null,
+export function calculateSeasonStandings(seasonPicks = [], gamesByWeek = {}, membersList = LEAGUE_MEMBERS) {
+  const memberStats = {};
+
+  // 1. Initialize stats for all registered / active members
+  membersList.forEach((member) => {
+    memberStats[member] = {
+      userName: member,
+      wins: 0,
+      losses: 0,
+      pushes: 0,
+      lockBonuses: 0,
+      totalPoints: 0,
+    };
+  });
+
+  // 2. Also ensure any user who made picks in the past is tracked
+  seasonPicks.forEach((p) => {
+    if (p.user_name && !memberStats[p.user_name]) {
+      memberStats[p.user_name] = {
+        userName: p.user_name,
+        wins: 0,
+        losses: 0,
+        pushes: 0,
+        lockBonuses: 0,
+        totalPoints: 0,
       };
     }
   });
-  return completed;
-}
 
-function gradeUserPicks(userPicks, completedGames) {
-  let wins = 0, losses = 0, pushes = 0, lockWon = false, lockLost = false;
+  // 3. Calculate points and record for each week
+  seasonPicks.forEach((userRecord) => {
+    const { user_name, week, picks } = userRecord;
+    const stats = memberStats[user_name];
+    if (!stats || !picks) return;
 
-  Object.entries(userPicks || {}).forEach(([gameId, pick]) => {
-    const gameResult = completedGames[gameId];
-    if (!gameResult) return;
+    const weekGames = gamesByWeek[week] || [];
 
-    // Against-the-spread pick
-    if (pick?.spread && gameResult.winningTeam) {
-      if (gameResult.winningTeam === 'push') pushes += 1;
-      else if (gameResult.winningTeam === pick.spread) {
-        wins += 1;
-        if (pick.isLock) lockWon = true;
-      } else {
-        losses += 1;
-        if (pick.isLock) lockLost = true;
+    Object.keys(picks).forEach((gameId) => {
+      const userPick = picks[gameId];
+      const game = weekGames.find((g) => g.id.toString() === gameId.toString());
+
+      if (!game || game.status !== 'FINAL') return;
+
+      // Spread check
+      if (userPick.spread) {
+        const homeMargin = game.homeScore - game.awayScore;
+        const spreadCovered =
+          userPick.spread === 'home'
+            ? homeMargin + game.homeSpread
+            : -homeMargin + game.awaySpread;
+
+        if (spreadCovered > 0) {
+          stats.wins += 1;
+          stats.totalPoints += 1;
+          if (userPick.isLock) {
+            stats.lockBonuses += 1;
+            stats.totalPoints += 1; // Extra point for lock win
+          }
+        } else if (spreadCovered < 0) {
+          stats.losses += 1;
+        } else {
+          stats.pushes += 1;
+        }
       }
-    }
 
-    // Over/under pick
-    if (pick?.total && gameResult.winningTotal) {
-      if (gameResult.winningTotal === 'push') pushes += 1;
-      else if (gameResult.winningTotal === pick.total) wins += 1;
-      else losses += 1;
-    }
+      // Total check
+      if (userPick.total && game.overUnder != null) {
+        const totalPoints = game.homeScore + game.awayScore;
+        if (
+          (userPick.total === 'over' && totalPoints > game.overUnder) ||
+          (userPick.total === 'under' && totalPoints < game.overUnder)
+        ) {
+          stats.wins += 1;
+          stats.totalPoints += 1;
+        } else if (totalPoints === game.overUnder) {
+          stats.pushes += 1;
+        } else {
+          stats.losses += 1;
+        }
+      }
+    });
   });
 
-  return { wins, losses, pushes, lockWon, lockLost };
-}
-
-// Single-week standings. Not used by the main standings table anymore
-// (that's season-wide now) but kept in case a per-week view is wanted later.
-export function calculateStandings(allLeaguePicks, games) {
-  const completedGames = buildCompletedGamesMap(games);
-
-  const standings = LEAGUE_MEMBERS.map((memberName) => {
-    const userRow = allLeaguePicks.find((p) => p.user_name === memberName);
-    const { wins, losses, pushes, lockWon, lockLost } = gradeUserPicks(userRow?.picks, completedGames);
-    const totalPoints = wins + (lockWon ? 1 : 0);
-    return { userName: memberName, wins, losses, pushes, lockWon, lockLost, totalPoints };
-  });
-
-  return standings.sort((a, b) => b.totalPoints - a.totalPoints || b.wins - a.wins);
-}
-
-/**
- * Season-long standings: grades every pick a user has ever made against
- * that pick's own week's completed games. gamesByWeek comes from
- * getCachedGamesByWeek() -- a week with no cached games (nobody's opened
- * it) is simply skipped, which is safe since picks can't exist for a week
- * whose games were never loaded.
- */
-export function calculateSeasonStandings(allSeasonPicks, gamesByWeek) {
-  const completedByWeek = {};
-  Object.entries(gamesByWeek || {}).forEach(([week, games]) => {
-    completedByWeek[week] = buildCompletedGamesMap(games);
-  });
-
-  const standings = LEAGUE_MEMBERS.map((memberName) => {
-    let wins = 0, losses = 0, pushes = 0, lockBonuses = 0;
-
-    allSeasonPicks
-      .filter((row) => row.user_name === memberName)
-      .forEach((row) => {
-        const completedGames = completedByWeek[row.week];
-        if (!completedGames) return;
-        const result = gradeUserPicks(row.picks, completedGames);
-        wins += result.wins;
-        losses += result.losses;
-        pushes += result.pushes;
-        if (result.lockWon) lockBonuses += 1;
-      });
-
-    const totalPoints = wins + lockBonuses;
-    return { userName: memberName, wins, losses, pushes, lockBonuses, totalPoints };
-  });
-
-  return standings.sort((a, b) => b.totalPoints - a.totalPoints || b.wins - a.wins);
+  return Object.values(memberStats).sort(
+    (a, b) => b.totalPoints - a.totalPoints || b.wins - a.wins
+  );
 }
