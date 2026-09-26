@@ -26,15 +26,13 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [apiError, setApiError] = useState(null);
 
-  // Authentication & User State
+  // Auth State
   const [currentUser, setCurrentUser] = useState(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [usersList, setUsersList] = useState([]);
 
-  // Derive the numeric week from the dropdown instead of hardcoding it.
   const weekNum = parseInt(selectedWeek.split(' ')[1], 10);
 
-  // Load saved session & user list on initial mount
   useEffect(() => {
     const savedUser = localStorage.getItem('currentUser');
     if (savedUser) {
@@ -66,7 +64,6 @@ export default function App() {
       try {
         setApiError(null);
         const liveGames = await getWeeklyGames(2026, weekNum);
-        console.log("Loaded live games:", liveGames);
         if (liveGames && liveGames.length > 0) {
           setGames(liveGames);
         } else {
@@ -74,7 +71,10 @@ export default function App() {
         }
       } catch (err) {
         console.error("Failed to load games:", err);
-        setApiError(`API Exception: ${err.message}`);
+        const msg = err.message === 'Load failed' 
+          ? 'Network request failed. Please check Vercel Environment Variables (API Key) or disable ad-blockers.' 
+          : err.message;
+        setApiError(`API Exception: ${msg}`);
       }
     }
     loadGames();
@@ -126,14 +126,12 @@ export default function App() {
     loadSeasonStandingsData();
   }, [weekNum]);
 
-  // Handle saving picks
   const handlePick = async (gameId, field, value) => {
     if (!currentUser) {
       setShowAuthModal(true);
       return;
     }
 
-    // Automatically switch view to logged-in user if picking
     if (currentUser.name !== selectedUser) {
       setSelectedUser(currentUser.name);
     }
@@ -155,7 +153,6 @@ export default function App() {
     setIsSaving(false);
   };
 
-  // Handle saving lock of the week
   const handleLockToggle = async (targetGameId) => {
     if (!currentUser) {
       setShowAuthModal(true);
@@ -194,7 +191,6 @@ export default function App() {
   const lockedGameId = Object.keys(picks).find((id) => picks[id]?.isLock);
   const lockedGame = games.find((g) => g.id.toString() === lockedGameId?.toString());
 
-  // Combined list of dropdown members
   const availableMembers = Array.from(
     new Set([...LEAGUE_MEMBERS, ...usersList.map((u) => u.name)])
   );
@@ -209,7 +205,6 @@ export default function App() {
               <p className="text-sm text-white/55 mt-0.5">Weekly spread &amp; total picks</p>
             </div>
 
-            {/* Auth status button */}
             <div>
               {currentUser ? (
                 <div className="flex items-center gap-2">
@@ -228,7 +223,7 @@ export default function App() {
                   onClick={() => setShowAuthModal(true)}
                   className="text-xs font-medium bg-white text-crimson px-3.5 py-1.5 rounded-full hover:bg-white/90 transition-colors"
                 >
-                  Log In / Profile
+                  Log In / Register
                 </button>
               )}
             </div>
@@ -260,7 +255,6 @@ export default function App() {
       </header>
 
       <main className="max-w-4xl mx-auto px-5 py-6">
-        {/* Read-Only Notice Banners */}
         {!currentUser ? (
           <div className="mb-4 rounded-card border border-amber-300 bg-amber-50 px-4 py-2.5 flex items-center justify-between gap-2">
             <span className="text-xs text-amber-900">
@@ -434,7 +428,6 @@ export default function App() {
         </div>
       </main>
 
-      {/* Pop-up Auth Modal */}
       {showAuthModal && (
         <AuthModal
           users={
