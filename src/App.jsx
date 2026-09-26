@@ -13,13 +13,25 @@ export default function App() {
   const [picks, setPicks] = useState({});
   const [allLeaguePicks, setAllLeaguePicks] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [apiError, setApiError] = useState(null); // Added error tracker
 
-  const weekNum = parseInt(selectedWeek.replace('Week ', ''), 10) || 5;
+  const weekNum = 4; // Hardcoded to Week 4 for testing
 
   useEffect(() => {
     async function loadGames() {
-      const liveGames = await fetchWeeklyGames(2026, 4);
-      if (liveGames.length > 0) setGames(liveGames);
+      try {
+        setApiError(null);
+        const liveGames = await fetchWeeklyGames(2026, weekNum);
+        console.log("Loaded live games:", liveGames);
+        if (liveGames && liveGames.length > 0) {
+          setGames(liveGames);
+        } else {
+          setApiError("API returned 0 games for Week 4. Check API Key or Season Week.");
+        }
+      } catch (err) {
+        console.error("Failed to load games:", err);
+        setApiError(`API Exception: ${err.message}`);
+      }
     }
     loadGames();
   }, [weekNum]);
@@ -72,7 +84,7 @@ export default function App() {
     const isCurrentlyLocked = picks[targetGameId]?.isLock || false;
     const updatedPicks = {};
     Object.keys(picks).forEach((gameId) => {
-      updatedPicks[gameId] = { ...picks[gameId], isLock: false };
+      updatedPisch[gameId] = { ...picks[gameId], isLock: false };
     });
     if (!isCurrentlyLocked) {
       updatedPicks[targetGameId] = { ...updatedPicks[targetGameId], isLock: true };
@@ -112,6 +124,14 @@ export default function App() {
           📋 Copy Picks
         </button>
       </div>
+
+      {/* On-screen error message banner */}
+      {apiError && (
+        <div className="mb-6 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
+          <p className="font-bold">⚠️ Debug Notice:</p>
+          <p className="text-sm">{apiError}</p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
         {games.map(game => {
