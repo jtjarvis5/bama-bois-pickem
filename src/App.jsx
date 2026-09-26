@@ -126,6 +126,11 @@ export default function App() {
     loadSeasonStandingsData();
   }, [weekNum]);
 
+  // Combined list of default + registered users
+  const availableMembers = Array.from(
+    new Set([...LEAGUE_MEMBERS, ...usersList.map((u) => u.name)])
+  );
+
   const handlePick = async (gameId, field, value) => {
     if (!currentUser) {
       setShowAuthModal(true);
@@ -142,7 +147,7 @@ export default function App() {
     setIsSaving(true);
     try {
       const { error } = await supabase.from('user_picks').upsert(
-        { user_name: activeUser, week: weekNum, picks: newPicks, updated_at: new Date().toISOString() },
+        { user_name: activeUser, week: weekNum, picks: newPicks },
         { onConflict: 'user_name,week' }
       );
       if (error) throw error;
@@ -176,7 +181,7 @@ export default function App() {
     setIsSaving(true);
     try {
       const { error } = await supabase.from('user_picks').upsert(
-        { user_name: activeUser, week: weekNum, picks: updatedPicks, updated_at: new Date().toISOString() },
+        { user_name: activeUser, week: weekNum, picks: updatedPicks },
         { onConflict: 'user_name,week' }
       );
       if (error) throw error;
@@ -187,13 +192,9 @@ export default function App() {
     setIsSaving(false);
   };
 
-  const standings = calculateSeasonStandings(seasonPicks, gamesByWeek);
+  const standings = calculateSeasonStandings(seasonPicks, gamesByWeek, availableMembers);
   const lockedGameId = Object.keys(picks).find((id) => picks[id]?.isLock);
   const lockedGame = games.find((g) => g.id.toString() === lockedGameId?.toString());
-
-  const availableMembers = Array.from(
-    new Set([...LEAGUE_MEMBERS, ...usersList.map((u) => u.name)])
-  );
 
   return (
     <div className="min-h-screen bg-paper">
@@ -395,7 +396,12 @@ export default function App() {
         </div>
 
         <h2 className="font-display text-lg font-semibold text-ink mb-3">Who picked who</h2>
-        <PickMatrix games={games} allLeaguePicks={allLeaguePicks} currentUser={selectedUser} />
+        <PickMatrix
+          games={games}
+          allLeaguePicks={allLeaguePicks}
+          currentUser={selectedUser}
+          allMembers={availableMembers}
+        />
 
         <h2 className="font-display text-lg font-semibold text-ink mt-10 mb-3">Season standings</h2>
         <div className="rounded-card border border-line bg-white overflow-hidden overflow-x-auto">
