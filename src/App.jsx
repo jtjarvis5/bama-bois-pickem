@@ -6,6 +6,7 @@ import { calculateSeasonStandings } from './utils/leaderboard';
 import { copyPicksToClipboard } from './utils/exportHelpers';
 import PickMatrix from './components/PickMatrix';
 import AuthModal from './components/AuthModal';
+import CreateLeagueModal from './components/CreateLeagueModal';
 
 function Chevron() {
   return (
@@ -66,9 +67,10 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [apiError, setApiError] = useState(null);
 
-  // Auth State
+  // Auth & Modal State
   const [currentUser, setCurrentUser] = useState(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showLeagueModal, setShowLeagueModal] = useState(false);
   const [usersList, setUsersList] = useState([]);
 
   const weekNum = parseInt(selectedWeek.split(' ')[1], 10);
@@ -278,16 +280,28 @@ export default function App() {
           </div>
 
           <div className="flex flex-wrap gap-3">
-            <div className="relative">
-              <select
-                value={selectedLeagueId}
-                onChange={(e) => setSelectedLeagueId(parseInt(e.target.value, 10))}
-                className="appearance-none bg-white/20 text-white text-sm font-medium rounded-full pl-4 pr-9 py-2 border border-white/15 focus:outline-none focus:ring-2 focus:ring-white/40"
+            <div className="flex items-center gap-1.5">
+              <div className="relative">
+                <select
+                  value={selectedLeagueId}
+                  onChange={(e) => setSelectedLeagueId(parseInt(e.target.value, 10))}
+                  className="appearance-none bg-white/20 text-white text-sm font-medium rounded-full pl-4 pr-9 py-2 border border-white/15 focus:outline-none focus:ring-2 focus:ring-white/40"
+                >
+                  {leagues.map(l => <option key={l.id} value={l.id} className="text-ink">{l.name} ({l.sport})</option>)}
+                </select>
+                <Chevron />
+              </div>
+              <button 
+                onClick={() => setShowLeagueModal(true)}
+                className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-full border border-white/15 transition-colors"
+                title="Create new league"
               >
-                {leagues.map(l => <option key={l.id} value={l.id} className="text-ink">{l.name} ({l.sport})</option>)}
-              </select>
-              <Chevron />
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <path d="M12 5v14m-7-7h14" />
+                </svg>
+              </button>
             </div>
+            
             <div className="relative">
               <select
                 value={selectedUser}
@@ -511,6 +525,17 @@ export default function App() {
           }}
           onUserCreated={fetchUsersList}
           onClose={() => setShowAuthModal(false)}
+        />
+      )}
+
+      {showLeagueModal && (
+        <CreateLeagueModal
+          onClose={() => setShowLeagueModal(false)}
+          onLeagueCreated={(newLeague) => {
+            setLeagues((prev) => [...prev, newLeague]);
+            setSelectedLeagueId(newLeague.id);
+            setShowLeagueModal(false);
+          }}
         />
       )}
     </div>
