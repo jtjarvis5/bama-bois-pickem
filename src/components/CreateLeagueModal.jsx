@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { supabase } from '../supabaseClient';
 
-export default function CreateLeagueModal({ onClose, onLeagueCreated }) {
+export default function CreateLeagueModal({ currentUser, onClose, onLeagueCreated }) {
   const [name, setName] = useState('');
   const [sport, setSport] = useState('CFB');
+  const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -15,15 +16,27 @@ export default function CreateLeagueModal({ onClose, onLeagueCreated }) {
     setError(null);
 
     try {
-      const { data, error: insertError } = await supabase
+      // 1. Create the league
+      const { data: leagueData, error: insertError } = await supabase
         .from('leagues')
-        .insert([{ name: name.trim(), sport }])
+        .insert([{ 
+          name: name.trim(), 
+          sport, 
+          password: password.trim() || null 
+        }])
         .select()
         .single();
 
       if (insertError) throw insertError;
+
+      // 2. Automatically add the creator as a member of this league
+      const { error: memberError } = await supabase
+        .from('league_members')
+        .insert([{ league_id: leagueData.id, user_name: currentUser.name }]);
+
+      if (memberError) throw memberError;
       
-      onLeagueCreated(data);
+      onLeagueCreated(leagueData);
     } catch (err) {
       console.error('Error creating league:', err);
       setError(err.message);
@@ -33,7 +46,7 @@ export default function CreateLeagueModal({ onClose, onLeagueCreated }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-ink/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-ink/65 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-line bg-paper/50 flex justify-between items-center">
           <h2 className="font-display font-semibold text-ink">Create new league</h2>
@@ -53,6 +66,18 @@ export default function CreateLeagueModal({ onClose, onLeagueCreated }) {
               placeholder="e.g. Sunday Scaries"
               className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-crimson focus:ring-1 focus:ring-crimson"
             />
+          </div>
+
+          <div className="mb-4">
+            <label className="block text-xs font-semibold text-muted uppercase tracking-wide mb-1.5">Password (Optional)</label>
+            <input
+              type="text"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Leave blank for open joining"
+              className="w-full border border-line rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-crimson focus:ring-1 focus:ring-crimson"
+            />
+            <span className="text-[11px] text-muted mt-1 block">Friends will need this password to join your league.</span>
           </div>
 
           <div className="mb-6">
