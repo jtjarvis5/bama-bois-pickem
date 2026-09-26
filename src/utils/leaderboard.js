@@ -1,33 +1,24 @@
-export const LEAGUE_MEMBERS = ['Austin', 'Bama1', 'Bama2', 'Bama3', 'Bama4'];
-
-export function calculateSeasonStandings(seasonPicks = [], gamesByWeek = {}, membersList = LEAGUE_MEMBERS) {
+export function calculateSeasonStandings(seasonPicks = [], gamesByWeek = {}, membersList = []) {
   const memberStats = {};
 
   // 1. Initialize stats for all registered / active members
   membersList.forEach((member) => {
     memberStats[member] = {
       userName: member,
-      wins: 0,
-      losses: 0,
-      pushes: 0,
-      lockBonuses: 0,
-      totalPoints: 0,
+      wins: 0, losses: 0, pushes: 0, lockBonuses: 0, totalPoints: 0,
     };
   });
 
-  // 2. Also ensure any user who made picks in the past is tracked
+  // 2. Add historical users (in case someone made picks but was removed from the active list)
   seasonPicks.forEach((p) => {
     if (p.user_name && !memberStats[p.user_name]) {
       memberStats[p.user_name] = {
         userName: p.user_name,
-        wins: 0,
-        losses: 0,
-        pushes: 0,
-        lockBonuses: 0,
-        totalPoints: 0,
+        wins: 0, losses: 0, pushes: 0, lockBonuses: 0, totalPoints: 0,
       };
     }
   });
+
 
   // 3. Calculate points and record for each week
   seasonPicks.forEach((userRecord) => {
