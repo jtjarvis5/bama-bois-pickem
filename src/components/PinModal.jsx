@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import bcrypt from 'bcryptjs';
 import { supabase } from '../lib/supabaseClient';
 
 export default function PinModal({ selectedUser, onSuccess, onClose }) {
@@ -12,10 +11,10 @@ export default function PinModal({ selectedUser, onSuccess, onClose }) {
     setLoading(true);
     setError('');
 
-    // Fetch user hash from Supabase
+    // Fetch user PIN directly from Supabase
     const { data: user, error: fetchError } = await supabase
       .from('users')
-      .select('pin_hash')
+      .select('pin')
       .eq('id', selectedUser.id)
       .single();
 
@@ -25,11 +24,8 @@ export default function PinModal({ selectedUser, onSuccess, onClose }) {
       return;
     }
 
-    // Compare PIN input against database hash
-    const isValid = bcrypt.compareSync(pin, user.pin_hash);
-
-    if (isValid) {
-      // Save user session in localStorage
+    // Direct string comparison
+    if (user.pin === pin) {
       localStorage.setItem('currentUser', JSON.stringify(selectedUser));
       onSuccess(selectedUser);
     } else {
