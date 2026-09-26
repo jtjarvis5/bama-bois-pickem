@@ -5,6 +5,7 @@ import { getCurrentWeekString, isGameLocked } from './utils/getCurrentWeek';
 import { calculateSeasonStandings, LEAGUE_MEMBERS } from './utils/leaderboard';
 import { copyPicksToClipboard } from './utils/exportHelpers';
 import PickMatrix from './components/PickMatrix';
+import AuthModal from './components/AuthModal';
 
 function Chevron() {
   return (
@@ -25,9 +26,40 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [apiError, setApiError] = useState(null);
 
+  // Authentication & User State
+  const [currentUser, setCurrentUser] = useState(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [usersList, setUsersList] = useState([]);
+
   // Derive the numeric week from the dropdown instead of hardcoding it.
-  // "Week 5" -> 5
   const weekNum = parseInt(selectedWeek.split(' ')[1], 10);
+
+  // Load saved session & user list on initial mount
+  useEffect(() => {
+    const savedUser = localStorage.getItem('currentUser');
+    if (savedUser) {
+      try {
+        const parsed = JSON.parse(savedUser);
+        setCurrentUser(parsed);
+        setSelectedUser(parsed.name);
+      } catch (err) {
+        console.error('Failed to parse saved user:', err);
+      }
+    }
+    fetchUsersList();
+  }, []);
+
+  const fetchUsersList = async () => {
+    const { data, error } = await supabase.from('users').select('id, name');
+    if (!error && data && data.length > 0) {
+      setUsersList(data);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('currentUser');
+    setCurrentUser(null);
+  };
 
   useEffect(() => {
     async function loadGames() {
@@ -81,9 +113,6 @@ export default function App() {
     return () => supabase.removeChannel(picksChannel);
   }, [weekNum, selectedUser]);
 
-  // Season-long standings data: every pick ever made (all weeks) plus every
-  // week's cached game results. Refetches whenever the viewed week changes,
-  // which also picks up that week's results once they've been cached.
   useEffect(() => {
     async function loadSeasonStandingsData() {
       const [{ data: picksData, error: picksError }, cachedByWeek] = await Promise.all([
@@ -97,14 +126,25 @@ export default function App() {
     loadSeasonStandingsData();
   }, [weekNum]);
 
-  // field is 'spread' ('home'/'away') or 'total' ('over'/'under')
+  // Handle saving picks
   const handlePick = async (gameId, field, value) => {
+    if (!currentUser) {
+      setShowAuthModal(true);
+      return;
+    }
+
+    // Automatically switch view to logged-in user if picking
+    if (currentUser.name !== selectedUser) {
+      setSelectedUser(currentUser.name);
+    }
+
+    const activeUser = currentUser.name;
     const newPicks = { ...picks, [gameId]: { ...picks[gameId], [field]: value } };
     setPicks(newPicks);
     setIsSaving(true);
     try {
       const { error } = await supabase.from('user_picks').upsert(
-        { user_name: selectedUser, week: weekNum, picks: newPicks, updated_at: new Date().toISOString() },
+        { user_name: activeUser, week: weekNum, picks: newPicks, updated_at: new Date().toISOString() },
         { onConflict: 'user_name,week' }
       );
       if (error) throw error;
@@ -115,7 +155,18 @@ export default function App() {
     setIsSaving(false);
   };
 
+  // Handle saving lock of the week
   const handleLockToggle = async (targetGameId) => {
+    if (!currentUser) {
+      setShowAuthModal(true);
+      return;
+    }
+
+    if (currentUser.name !== selectedUser) {
+      setSelectedUser(currentUser.name);
+    }
+
+    const activeUser = currentUser.name;
     const isCurrentlyLocked = picks[targetGameId]?.isLock || false;
     const updatedPicks = {};
     Object.keys(picks).forEach((gameId) => {
@@ -128,7 +179,7 @@ export default function App() {
     setIsSaving(true);
     try {
       const { error } = await supabase.from('user_picks').upsert(
-        { user_name: selectedUser, week: weekNum, picks: updatedPicks, updated_at: new Date().toISOString() },
+        { user_name: activeUser, week: weekNum, picks: updatedPicks, updated_at: new Date().toISOString() },
         { onConflict: 'user_name,week' }
       );
       if (error) throw error;
@@ -143,14 +194,46 @@ export default function App() {
   const lockedGameId = Object.keys(picks).find((id) => picks[id]?.isLock);
   const lockedGame = games.find((g) => g.id.toString() === lockedGameId?.toString());
 
+  // Combined list of dropdown members
+  const availableMembers = Array.from(
+    new Set([...LEAGUE_MEMBERS, ...usersList.map((u) => u.name)])
+  );
+
   return (
     <div className="min-h-screen bg-paper">
       <header className="bg-crimson-deep">
         <div className="max-w-4xl mx-auto px-5 py-6 flex flex-col gap-4">
-          <div>
-            <h1 className="font-display text-2xl font-semibold text-white tracking-tight">Bama Bois Pick&rsquo;em</h1>
-            <p className="text-sm text-white/55 mt-0.5">Weekly spread &amp; total picks</p>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h1 className="font-display text-2xl font-semibold text-white tracking-tight">Bama Bois Pick&rsquo;em</h1>
+              <p className="text-sm text-white/55 mt-0.5">Weekly spread &amp; total picks</p>
+            </div>
+
+            {/* Auth status button */}
+            <div>
+              {currentUser ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-white/80">
+                    Logged in as <strong className="text-white font-semibold">{currentUser.name}</strong>
+                  </span>
+                  <button
+                    onClick={handleLogout}
+                    className="text-xs bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-full border border-white/15 transition-colors"
+                  >
+                    Log Out
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowAuthModal(true)}
+                  className="text-xs font-medium bg-white text-crimson px-3.5 py-1.5 rounded-full hover:bg-white/90 transition-colors"
+                >
+                  Log In / Profile
+                </button>
+              )}
+            </div>
           </div>
+
           <div className="flex gap-3">
             <div className="relative">
               <select
@@ -158,7 +241,7 @@ export default function App() {
                 onChange={(e) => setSelectedUser(e.target.value)}
                 className="appearance-none bg-white/10 text-white text-sm font-medium rounded-full pl-4 pr-9 py-2 border border-white/15 focus:outline-none focus:ring-2 focus:ring-white/40"
               >
-                {LEAGUE_MEMBERS.map(m => <option key={m} value={m} className="text-ink">{m}</option>)}
+                {availableMembers.map(m => <option key={m} value={m} className="text-ink">{m}</option>)}
               </select>
               <Chevron />
             </div>
@@ -177,6 +260,33 @@ export default function App() {
       </header>
 
       <main className="max-w-4xl mx-auto px-5 py-6">
+        {/* Read-Only Notice Banners */}
+        {!currentUser ? (
+          <div className="mb-4 rounded-card border border-amber-300 bg-amber-50 px-4 py-2.5 flex items-center justify-between gap-2">
+            <span className="text-xs text-amber-900">
+              Viewing in read-only mode. Log in with your PIN to make or update picks.
+            </span>
+            <button
+              onClick={() => setShowAuthModal(true)}
+              className="shrink-0 text-xs font-medium bg-amber-900 text-white px-3 py-1 rounded-full hover:bg-amber-800 transition-colors"
+            >
+              Log In
+            </button>
+          </div>
+        ) : currentUser.name !== selectedUser ? (
+          <div className="mb-4 rounded-card border border-blue-200 bg-blue-50 px-4 py-2.5 flex items-center justify-between gap-2">
+            <span className="text-xs text-blue-900">
+              Viewing <strong>{selectedUser}</strong>&rsquo;s picks. You are logged in as <strong>{currentUser.name}</strong>.
+            </span>
+            <button
+              onClick={() => setSelectedUser(currentUser.name)}
+              className="shrink-0 text-xs font-medium bg-blue-800 text-white px-3 py-1 rounded-full hover:bg-blue-700 transition-colors"
+            >
+              Switch to My Picks
+            </button>
+          </div>
+        ) : null}
+
         {isSaving && (
           <div className="mb-3 text-xs text-muted">Saving…</div>
         )}
@@ -323,6 +433,24 @@ export default function App() {
           </table>
         </div>
       </main>
+
+      {/* Pop-up Auth Modal */}
+      {showAuthModal && (
+        <AuthModal
+          users={
+            usersList.length > 0
+              ? usersList
+              : LEAGUE_MEMBERS.map((m) => ({ id: m.toLowerCase().replace(/\s+/g, '_'), name: m }))
+          }
+          onSuccess={(user) => {
+            setCurrentUser(user);
+            setSelectedUser(user.name);
+            setShowAuthModal(false);
+          }}
+          onUserCreated={fetchUsersList}
+          onClose={() => setShowAuthModal(false)}
+        />
+      )}
     </div>
   );
 }
