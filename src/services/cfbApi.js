@@ -43,14 +43,18 @@ export async function fetchWeeklyGames(year, week) {
   }
 
   const formattedGames = gamesData.map(g => {
+    // NOTE: CFBD's API returns camelCase fields (homeTeam, awayPoints,
+    // startDate, ...), not the snake_case names (home_team, away_points,
+    // start_date) this was originally written against. That mismatch was
+    // the actual bug -- the key and the request were both fine.
     const line = linesMap[g.id] || { spread: 0 };
-    const isBama = g.home_team === 'Alabama' || g.away_team === 'Alabama';
+    const isBama = g.homeTeam === 'Alabama' || g.awayTeam === 'Alabama';
     const homeSpread = line.spread ?? 0;
     const awaySpread = homeSpread !== 0 ? -homeSpread : 0;
 
     let winningSpreadTeam = null;
     if (g.completed) {
-      const homeMargin = g.home_points - g.away_points;
+      const homeMargin = g.homePoints - g.awayPoints;
       if (homeMargin + homeSpread > 0) winningSpreadTeam = 'home';
       else if (homeMargin + homeSpread < 0) winningSpreadTeam = 'away';
       else winningSpreadTeam = 'push';
@@ -59,14 +63,14 @@ export async function fetchWeeklyGames(year, week) {
     return {
       id: g.id,
       isBama,
-      homeTeam: g.home_team,
-      homeAbbr: g.home_team.substring(0, 4).toUpperCase(),
+      homeTeam: g.homeTeam,
+      homeAbbr: g.homeTeam.substring(0, 4).toUpperCase(),
       homeSpread: homeSpread,
-      awayTeam: g.away_team,
-      awayAbbr: g.away_team.substring(0, 4).toUpperCase(),
+      awayTeam: g.awayTeam,
+      awayAbbr: g.awayTeam.substring(0, 4).toUpperCase(),
       awaySpread: awaySpread,
-      startDate: g.start_date,
-      time: new Date(g.start_date).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' }),
+      startDate: g.startDate,
+      time: new Date(g.startDate).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' }),
       status: g.completed ? 'FINAL' : 'UPCOMING',
       winningSpreadTeam
     };
