@@ -51,8 +51,13 @@ function getPickStatus(game, pick, type) {
 }
 
 export default function App() {
+  // App & League State
+  const [leagues, setLeagues] = useState([{ id: 1, name: 'Bama Bois', sport: 'CFB' }]);
+  const [selectedLeagueId, setSelectedLeagueId] = useState(1);
   const [selectedUser, setSelectedUser] = useState('');
   const [selectedWeek, setSelectedWeek] = useState(getCurrentWeekString());
+  
+  // Game & Pick Data
   const [games, setGames] = useState([]);
   const [picks, setPicks] = useState({});
   const [allLeaguePicks, setAllLeaguePicks] = useState([]);
@@ -67,8 +72,14 @@ export default function App() {
   const [usersList, setUsersList] = useState([]);
 
   const weekNum = parseInt(selectedWeek.split(' ')[1], 10);
+  const activeLeague = leagues.find(l => l.id === selectedLeagueId) || leagues[0];
 
   useEffect(() => {
+    async function initLeagues() {
+      const { data } = await supabase.from('leagues').select('*').order('id');
+      if (data && data.length > 0) setLeagues(data);
+    }
+    initLeagues();
     fetchUsersList();
   }, []);
 
@@ -77,7 +88,6 @@ export default function App() {
     if (!error && data && data.length > 0) {
       setUsersList(data);
       
-      // Handle LocalStorage Session validation
       const savedUser = localStorage.getItem('currentUser');
       if (savedUser) {
         try {
@@ -93,7 +103,7 @@ export default function App() {
           console.error('Failed to parse saved user:', err);
         }
       } else if (!selectedUser) {
-        setSelectedUser(data[0].name); // Default to first user if no one is logged in
+        setSelectedUser(data[0].name); 
       }
     }
   };
@@ -107,35 +117,46 @@ export default function App() {
     async function loadGames() {
       try {
         setApiError(null);
-        const liveGames = await getWeeklyGames(2026, weekNum);
+        const liveGames = await getWeeklyGames(2026, weekNum, activeLeague.sport);
         if (liveGames && liveGames.length > 0) {
           setGames(liveGames);
         } else {
-          setApiError(`API returned 0 games for Week ${weekNum}. Check API Key or Season Week.`);
+          setApiError(`API returned 0 games for Week ${weekNum}.`);
         }
       } catch (err) {
         console.error("Failed to load games:", err);
         setApiError(`API Exception: ${err.message}`);
       }
     }
-    loadGames();
-  }, [weekNum]);
+    if (activeLeague) loadGames();
+  }, [weekNum, selectedLeagueId, activeLeague]);
 
   useEffect(() => {
     async function loadInitialPicks() {
-      const { data } = await supabase.from('user_picks').select('*').eq('week', weekNum);
+      const { data } = await supabase.from('user_picks')
+        .select('*')
+        .eq('week', weekNum)
+        .eq('league_id', selectedLeagueId);
+        
       if (data) {
         setAllLeaguePicks(data);
         const currentUserData = data.find(p => p.user_name === selectedUser);
         setPicks(currentUserData?.picks || {});
       }
     }
-    if (selectedUser) loadInitialPicks();
+    if (selectedUser && selectedLeagueId) loadInitialPicks();
 
     const picksChannel = supabase
-      .channel(`public:user_picks:week_${weekNum}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_picks', filter: `week=eq.${weekNum}` }, (payload) => {
+      .channel(`public:user_picks:league_${selectedLeagueId}_week_${weekNum}`)
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'user_picks', 
+        filter: `league_id=eq.${selectedLeagueId}` 
+      }, (payload) => {
         const updatedRow = payload.new;
+        if (updatedRow.week !== weekNum) return;
+
         setAllLeaguePicks((prev) => {
           const idx = prev.findIndex(p => p.user_name === updatedRow.user_name);
           if (idx !== -1) {
@@ -152,19 +173,19 @@ export default function App() {
       .subscribe();
 
     return () => supabase.removeChannel(picksChannel);
-  }, [weekNum, selectedUser]);
+  }, [weekNum, selectedUser, selectedLeagueId]);
 
   useEffect(() => {
     async function loadSeasonStandingsData() {
       const [{ data: picksData }, cachedByWeek] = await Promise.all([
-        supabase.from('user_picks').select('*'),
-        getCachedGamesByWeek(2026),
+        supabase.from('user_picks').select('*').eq('league_id', selectedLeagueId),
+        getCachedGamesByWeek(2026, activeLeague.sport),
       ]);
       if (picksData) setSeasonPicks(picksData);
       setGamesByWeek(cachedByWeek);
     }
-    loadSeasonStandingsData();
-  }, [weekNum]);
+    if (selectedLeagueId) loadSeasonStandingsData();
+  }, [weekNum, selectedLeagueId, activeLeague]);
 
   const availableMembers = usersList.map((u) => u.name);
 
@@ -172,8 +193,8 @@ export default function App() {
     setIsSaving(true);
     const lockedId = Object.keys(newPicks).find((id) => newPicks[id]?.isLock);
     
-    // Defensive payload ensuring all constraints are met
     const payload = {
+      league_id: selectedLeagueId,
       user_name: activeUser,
       week: weekNum,
       picks: newPicks,
@@ -183,7 +204,7 @@ export default function App() {
 
     try {
       const { error } = await supabase.from('user_picks').upsert(
-        payload, { onConflict: 'user_name,week' }
+        payload, { onConflict: 'league_id,user_name,week' }
       );
       if (error) throw error;
     } catch (err) {
@@ -228,8 +249,8 @@ export default function App() {
         <div className="max-w-4xl mx-auto px-5 py-6 flex flex-col gap-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h1 className="font-display text-2xl font-semibold text-white tracking-tight">Bama Bois Pick&rsquo;em</h1>
-              <p className="text-sm text-white/55 mt-0.5">Weekly spread &amp; total picks</p>
+              <h1 className="font-display text-2xl font-semibold text-white tracking-tight">Pick&rsquo;em</h1>
+              <p className="text-sm text-white/55 mt-0.5">Spread &amp; total picks</p>
             </div>
 
             <div>
@@ -256,7 +277,17 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
+            <div className="relative">
+              <select
+                value={selectedLeagueId}
+                onChange={(e) => setSelectedLeagueId(parseInt(e.target.value, 10))}
+                className="appearance-none bg-white/20 text-white text-sm font-medium rounded-full pl-4 pr-9 py-2 border border-white/15 focus:outline-none focus:ring-2 focus:ring-white/40"
+              >
+                {leagues.map(l => <option key={l.id} value={l.id} className="text-ink">{l.name} ({l.sport})</option>)}
+              </select>
+              <Chevron />
+            </div>
             <div className="relative">
               <select
                 value={selectedUser}
@@ -273,7 +304,7 @@ export default function App() {
                 onChange={(e) => setSelectedWeek(e.target.value)}
                 className="appearance-none bg-white/10 text-white text-sm font-medium rounded-full pl-4 pr-9 py-2 border border-white/15 focus:outline-none focus:ring-2 focus:ring-white/40"
               >
-                {[...Array(14)].map((_, i) => <option key={i} value={`Week ${i + 1}`} className="text-ink">Week {i + 1}</option>)}
+                {[...Array(18)].map((_, i) => <option key={i} value={`Week ${i + 1}`} className="text-ink">Week {i + 1}</option>)}
               </select>
               <Chevron />
             </div>
@@ -309,6 +340,7 @@ export default function App() {
         ) : null}
 
         {isSaving && <div className="mb-3 text-xs text-muted font-medium">Saving…</div>}
+        {apiError && <div className="mb-4 text-xs text-red-600 bg-red-50 p-3 rounded-lg border border-red-200">{apiError}</div>}
 
         <div className="mb-4 rounded-card bg-crimson text-white px-4 py-3.5 flex items-center justify-between gap-3 shadow-sm">
           <div className="text-sm min-w-0">
@@ -330,7 +362,6 @@ export default function App() {
             const lockedByKickoff = isGameLocked(game.startDate);
             const isFinal = game.status === 'FINAL';
             
-            // Dynamic Button Styling for Win/Loss/Push visualization
             const getBtnClass = (type, side) => {
               const isSelected = picks[game.id]?.[type] === side;
               if (!isSelected) return 'flex-1 py-2.5 rounded-lg border border-line text-ink hover:border-ink/30 text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-white';
