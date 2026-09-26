@@ -13,9 +13,11 @@ export default function App() {
   const [picks, setPicks] = useState({});
   const [allLeaguePicks, setAllLeaguePicks] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
-  const [apiError, setApiError] = useState(null); // Added error tracker
+  const [apiError, setApiError] = useState(null);
 
-  const weekNum = 3; // Hardcoded to Week 4 for testing
+  // Derive the numeric week from the dropdown instead of hardcoding it.
+  // "Week 5" -> 5
+  const weekNum = parseInt(selectedWeek.split(' ')[1], 10);
 
   useEffect(() => {
     async function loadGames() {
@@ -26,7 +28,7 @@ export default function App() {
         if (liveGames && liveGames.length > 0) {
           setGames(liveGames);
         } else {
-          setApiError("API returned 0 games for Week 4. Check API Key or Season Week.");
+          setApiError(`API returned 0 games for Week ${weekNum}. Check API Key or Season Week.`);
         }
       } catch (err) {
         console.error("Failed to load games:", err);
@@ -84,7 +86,7 @@ export default function App() {
     const isCurrentlyLocked = picks[targetGameId]?.isLock || false;
     const updatedPicks = {};
     Object.keys(picks).forEach((gameId) => {
-      updatedPisch[gameId] = { ...picks[gameId], isLock: false };
+      updatedPicks[gameId] = { ...picks[gameId], isLock: false };
     });
     if (!isCurrentlyLocked) {
       updatedPicks[targetGameId] = { ...updatedPicks[targetGameId], isLock: true };
@@ -105,16 +107,20 @@ export default function App() {
   return (
     <div className="max-w-4xl mx-auto p-4 font-sans">
       <header className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Bama Bois Pick 'Em</h1>
+        <h1 className="text-2xl font-bold text-slate-900">Bama Bois Pick 'Em</h1>
         <div className="flex gap-4 items-center">
-          <select value={selectedUser} onChange={(e) => setSelectedUser(e.target.value)} className="border p-2 rounded">
+          <select value={selectedUser} onChange={(e) => setSelectedUser(e.target.value)} className="border border-slate-300 bg-white text-slate-900 p-2 rounded">
             {LEAGUE_MEMBERS.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
-          <select value={selectedWeek} onChange={(e) => setSelectedWeek(e.target.value)} className="border p-2 rounded">
+          <select value={selectedWeek} onChange={(e) => setSelectedWeek(e.target.value)} className="border border-slate-300 bg-white text-slate-900 p-2 rounded">
             {[...Array(14)].map((_, i) => <option key={i} value={`Week ${i + 1}`}>Week {i + 1}</option>)}
           </select>
         </div>
       </header>
+
+      {isSaving && (
+        <div className="mb-2 text-xs text-slate-400">Saving…</div>
+      )}
 
       <div className="mb-4 flex justify-between items-center p-3 bg-amber-50 border border-amber-200 rounded-lg">
         <span className="text-sm font-medium text-amber-900">
@@ -125,7 +131,6 @@ export default function App() {
         </button>
       </div>
 
-      {/* On-screen error message banner */}
       {apiError && (
         <div className="mb-6 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
           <p className="font-bold">⚠️ Debug Notice:</p>
@@ -137,22 +142,22 @@ export default function App() {
         {games.map(game => {
           const lockedByKickoff = isGameLocked(game.startDate);
           return (
-            <div key={game.id} className={`border p-4 rounded-lg shadow-sm ${lockedByKickoff ? 'opacity-75 bg-gray-50' : 'bg-white'}`}>
+            <div key={game.id} className={`border p-4 rounded-lg shadow-sm text-slate-900 ${lockedByKickoff ? 'opacity-75 bg-gray-50' : 'bg-white'}`}>
               <div className="flex justify-between text-xs text-gray-500 mb-2">
                 <span>{game.time}</span>
                 {lockedByKickoff && <span className="text-red-500 font-bold">🔒 Kickoff Locked</span>}
               </div>
               <div className="flex justify-between items-center mb-4">
-                <button 
-                  disabled={lockedByKickoff} 
+                <button
+                  disabled={lockedByKickoff}
                   onClick={() => handlePick(game.id, 'away')}
                   className={`flex-1 py-2 rounded border font-semibold ${picks[game.id]?.spread === 'away' ? 'bg-blue-600 text-white' : 'hover:bg-gray-100'}`}
                 >
                   {game.awayTeam} {game.awaySpread > 0 ? `+${game.awaySpread}` : game.awaySpread}
                 </button>
                 <span className="mx-2 text-gray-400">@</span>
-                <button 
-                  disabled={lockedByKickoff} 
+                <button
+                  disabled={lockedByKickoff}
                   onClick={() => handlePick(game.id, 'home')}
                   className={`flex-1 py-2 rounded border font-semibold ${picks[game.id]?.spread === 'home' ? 'bg-blue-600 text-white' : 'hover:bg-gray-100'}`}
                 >
@@ -171,36 +176,38 @@ export default function App() {
         })}
       </div>
 
-      <h2 className="text-xl font-bold mb-4">Who Picked Who</h2>
+      <h2 className="text-xl font-bold mb-4 text-slate-900">Who Picked Who</h2>
       <PickMatrix games={games} allLeaguePicks={allLeaguePicks} />
 
-      <h2 className="text-xl font-bold mt-8 mb-4">Live Standings</h2>
-      <table className="w-full text-left border-collapse bg-white shadow-sm rounded-lg overflow-hidden">
-        <thead className="bg-gray-100 border-b text-sm text-gray-600">
-          <tr>
-            <th className="p-3">Rank</th>
-            <th className="p-3">Member</th>
-            <th className="p-3">W-L-P</th>
-            <th className="p-3">Lock Status</th>
-            <th className="p-3 text-right">Points</th>
-          </tr>
-        </thead>
-        <tbody>
-          {standings.map((member, idx) => (
-            <tr key={member.userName} className="border-b">
-              <td className="p-3 font-semibold">{idx + 1}</td>
-              <td className="p-3">{member.userName}</td>
-              <td className="p-3">{member.wins}-{member.losses}-{member.pushes}</td>
-              <td className="p-3 text-sm">
-                {member.lockWon && <span className="text-green-600 font-bold">WON (+1)</span>}
-                {member.lockLost && <span className="text-red-500 font-bold">LOST</span>}
-                {!member.lockWon && !member.lockLost && <span className="text-gray-400">PENDING</span>}
-              </td>
-              <td className="p-3 font-bold text-lg text-right">{member.totalPoints}</td>
+      <h2 className="text-xl font-bold mt-8 mb-4 text-slate-900">Live Standings</h2>
+      <div className="overflow-x-auto">
+        <table className="w-full text-left border-collapse bg-white text-slate-900 shadow-sm rounded-lg overflow-hidden">
+          <thead className="bg-gray-100 border-b text-sm text-gray-600">
+            <tr>
+              <th className="p-3">Rank</th>
+              <th className="p-3">Member</th>
+              <th className="p-3">W-L-P</th>
+              <th className="p-3">Lock Status</th>
+              <th className="p-3 text-right">Points</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {standings.map((member, idx) => (
+              <tr key={member.userName} className="border-b">
+                <td className="p-3 font-semibold">{idx + 1}</td>
+                <td className="p-3">{member.userName}</td>
+                <td className="p-3">{member.wins}-{member.losses}-{member.pushes}</td>
+                <td className="p-3 text-sm">
+                  {member.lockWon && <span className="text-green-600 font-bold">WON (+1)</span>}
+                  {member.lockLost && <span className="text-red-500 font-bold">LOST</span>}
+                  {!member.lockWon && !member.lockLost && <span className="text-gray-400">PENDING</span>}
+                </td>
+                <td className="p-3 font-bold text-lg text-right">{member.totalPoints}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
