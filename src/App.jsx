@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { getWeeklyGames } from './services/gameCache';
+import { getWeeklyGames, getCachedGamesByWeek } from './services/gameCache';
 import { getCurrentWeekString, isGameLocked } from './utils/getCurrentWeek';
-import { calculateStandings, LEAGUE_MEMBERS } from './utils/leaderboard';
+import { calculateSeasonStandings, LEAGUE_MEMBERS } from './utils/leaderboard';
 import { copyPicksToClipboard } from './utils/exportHelpers';
 import PickMatrix from './components/PickMatrix';
 
@@ -12,6 +12,8 @@ export default function App() {
   const [games, setGames] = useState([]);
   const [picks, setPicks] = useState({});
   const [allLeaguePicks, setAllLeaguePicks] = useState([]);
+  const [seasonPicks, setSeasonPicks] = useState([]);
+  const [gamesByWeek, setGamesByWeek] = useState({});
   const [isSaving, setIsSaving] = useState(false);
   const [apiError, setApiError] = useState(null);
 
@@ -71,6 +73,22 @@ export default function App() {
     return () => supabase.removeChannel(picksChannel);
   }, [weekNum, selectedUser]);
 
+  // Season-long standings data: every pick ever made (all weeks) plus every
+  // week's cached game results. Refetches whenever the viewed week changes,
+  // which also picks up that week's results once they've been cached.
+  useEffect(() => {
+    async function loadSeasonStandingsData() {
+      const [{ data: picksData, error: picksError }, cachedByWeek] = await Promise.all([
+        supabase.from('user_picks').select('*'),
+        getCachedGamesByWeek(2026),
+      ]);
+      if (picksError) console.error('Failed to load season picks:', picksError);
+      if (picksData) setSeasonPicks(picksData);
+      setGamesByWeek(cachedByWeek);
+    }
+    loadSeasonStandingsData();
+  }, [weekNum]);
+
   // field is 'spread' ('home'/'away') or 'total' ('over'/'under')
   const handlePick = async (gameId, field, value) => {
     const newPicks = { ...picks, [gameId]: { ...picks[gameId], [field]: value } };
@@ -107,7 +125,7 @@ export default function App() {
     setIsSaving(false);
   };
 
-  const standings = calculateStandings(allLeaguePicks, games);
+  const standings = calculateSeasonStandings(seasonPicks, gamesByWeek);
   const lockedGameId = Object.keys(picks).find((id) => picks[id]?.isLock);
   const lockedGame = games.find((g) => g.id.toString() === lockedGameId?.toString());
 
@@ -212,7 +230,7 @@ export default function App() {
       <h2 className="text-xl font-bold mb-4 text-slate-900">Who Picked Who</h2>
       <PickMatrix games={games} allLeaguePicks={allLeaguePicks} />
 
-      <h2 className="text-xl font-bold mt-8 mb-4 text-slate-900">Live Standings</h2>
+      <h2 className="text-xl font-bold mt-8 mb-4 text-slate-900">Season Standings</h2>
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse bg-white text-slate-900 shadow-sm rounded-lg overflow-hidden">
           <thead className="bg-gray-100 border-b text-sm text-gray-600">
@@ -220,7 +238,7 @@ export default function App() {
               <th className="p-3">Rank</th>
               <th className="p-3">Member</th>
               <th className="p-3">W-L-P</th>
-              <th className="p-3">Lock Status</th>
+              <th className="p-3">Lock Bonuses</th>
               <th className="p-3 text-right">Points</th>
             </tr>
           </thead>
@@ -231,9 +249,9 @@ export default function App() {
                 <td className="p-3">{member.userName}</td>
                 <td className="p-3">{member.wins}-{member.losses}-{member.pushes}</td>
                 <td className="p-3 text-sm">
-                  {member.lockWon && <span className="text-green-600 font-bold">WON (+1)</span>}
-                  {member.lockLost && <span className="text-red-500 font-bold">LOST</span>}
-                  {!member.lockWon && !member.lockLost && <span className="text-gray-400">PENDING</span>}
+                  {member.lockBonuses > 0
+                    ? <span className="text-amber-600 font-bold">🔒 +{member.lockBonuses}</span>
+                    : <span className="text-gray-400">—</span>}
                 </td>
                 <td className="p-3 font-bold text-lg text-right">{member.totalPoints}</td>
               </tr>
