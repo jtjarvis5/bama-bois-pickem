@@ -67,3 +67,28 @@ export async function getWeeklyGames(year, week) {
 
   return freshGames;
 }
+
+/**
+ * Reads every cached week's games for a season in one query -- used for
+ * season-long standings. Costs zero CFBD quota since it only reads rows
+ * that getWeeklyGames() already wrote to games_cache; weeks nobody has
+ * ever opened simply won't have a row (and can't have picks either, since
+ * picking requires the games to have loaded first).
+ */
+export async function getCachedGamesByWeek(year) {
+  const { data, error } = await supabase
+    .from('games_cache')
+    .select('week, games')
+    .eq('year', year);
+
+  if (error) {
+    console.error('Failed to load season game cache for standings:', error);
+    return {};
+  }
+
+  const byWeek = {};
+  (data || []).forEach((row) => {
+    byWeek[row.week] = row.games;
+  });
+  return byWeek;
+}
