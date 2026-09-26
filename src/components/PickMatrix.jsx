@@ -1,72 +1,85 @@
-import React from 'react';
 import { LEAGUE_MEMBERS } from '../utils/leaderboard';
-import { isGameLocked } from '../utils/getCurrentWeek';
 
-function LockGlyph() {
-  return (
-    <svg className="inline-block w-3 h-3 text-muted/60" viewBox="0 0 12 12" fill="none">
-      <rect x="2.5" y="5.5" width="7" height="5" rx="1" stroke="currentColor" strokeWidth="1" />
-      <path d="M4 5.5V4a2 2 0 0 1 4 0v1.5" stroke="currentColor" strokeWidth="1" />
-    </svg>
-  );
-}
+export default function PickMatrix({ games = [], allLeaguePicks = [], currentUser, allMembers }) {
+  const members = allMembers && allMembers.length > 0 ? allMembers : LEAGUE_MEMBERS;
 
-export default function PickMatrix({ games, allLeaguePicks, currentUser }) {
-  const picksByMember = {};
+  // Map picks by username
+  const picksByUser = {};
   allLeaguePicks.forEach((row) => {
-    picksByMember[row.user_name] = row.picks || {};
+    picksByUser[row.user_name] = row.picks || {};
   });
 
+  if (!games || games.length === 0) {
+    return (
+      <div className="rounded-card border border-line bg-white p-4 text-center text-xs text-muted">
+        No games available to display matrix.
+      </div>
+    );
+  }
+
   return (
-    <div className="rounded-card border border-line bg-white overflow-hidden overflow-x-auto">
-      <table className="w-full text-sm text-left border-collapse">
+    <div className="rounded-card border border-line bg-white overflow-x-auto">
+      <table className="w-full text-left border-collapse text-xs">
         <thead>
-          <tr className="border-b border-line text-xs text-muted">
-            <th className="p-3 font-medium">Matchup</th>
-            {LEAGUE_MEMBERS.map(member => (
-              <th key={member} className="p-3 font-medium text-center">{member}</th>
+          <tr className="border-b border-line bg-paper/50 text-muted">
+            <th className="p-3 font-medium min-w-[140px]">Game</th>
+            {members.map((m) => (
+              <th
+                key={m}
+                className={`p-3 font-medium text-center min-w-[90px] ${
+                  m === currentUser ? 'text-crimson font-semibold' : ''
+                }`}
+              >
+                {m} {m === currentUser && '(You)'}
+              </th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {games.map((game) => {
-            const locked = isGameLocked(game.startDate);
-            return (
-              <tr key={game.id} className="border-b border-line last:border-0">
-                <td className="p-3 text-xs text-ink whitespace-nowrap">
-                  {game.awayAbbr} @ {game.homeAbbr}
-                </td>
-                {LEAGUE_MEMBERS.map((member) => {
-                  const isSelf = member === currentUser;
+          {games.map((game) => (
+            <tr key={game.id} className="border-b border-line last:border-0 hover:bg-paper/30">
+              <td className="p-3">
+                <div className="font-medium text-ink">
+                  {game.awayTeam} @ {game.homeTeam}
+                </div>
+                <div className="text-[10px] text-muted">{game.time}</div>
+              </td>
+              {members.map((m) => {
+                const userPicks = picksByUser[m] || {};
+                const gamePick = userPicks[game.id];
 
-                  // Fairness: hide everyone else's picks for a game until
-                  // it actually kicks off, so nobody can copy a pick.
-                  // You can always see your own column.
-                  if (!locked && !isSelf) {
-                    return (
-                      <td key={member} className="p-3 text-center">
-                        <LockGlyph />
-                      </td>
-                    );
-                  }
-
-                  const pick = picksByMember[member]?.[game.id];
-                  if (!pick?.spread && !pick?.total) {
-                    return <td key={member} className="p-3 text-center text-muted">–</td>;
-                  }
-                  const teamName = pick.spread
-                    ? (pick.spread === 'home' ? game.homeAbbr : game.awayAbbr)
-                    : null;
-                  const totalLetter = pick.total ? (pick.total === 'over' ? 'O' : 'U') : null;
+                if (!gamePick || (!gamePick.spread && !gamePick.total)) {
                   return (
-                    <td key={member} className={`p-3 text-center font-medium ${pick.isLock ? 'text-crimson' : 'text-ink'}`}>
-                      {teamName || '–'}{totalLetter ? ` / ${totalLetter}` : ''}
+                    <td key={m} className="p-3 text-center text-muted/40">
+                      —
                     </td>
                   );
-                })}
-              </tr>
-            );
-          })}
+                }
+
+                return (
+                  <td key={m} className="p-3 text-center">
+                    <div className="space-y-0.5">
+                      {gamePick.spread && (
+                        <div className="font-medium text-ink">
+                          {gamePick.spread === 'away' ? game.awayTeam : game.homeTeam}
+                        </div>
+                      )}
+                      {gamePick.total && (
+                        <div className="text-[10px] text-muted uppercase">
+                          {gamePick.total} {game.overUnder}
+                        </div>
+                      )}
+                      {gamePick.isLock && (
+                        <span className="inline-block bg-crimson/10 text-crimson text-[9px] font-semibold px-1.5 py-0.5 rounded">
+                          LOCK
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
