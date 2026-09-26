@@ -1,167 +1,241 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { supabase } from '../supabaseClient';
 
-export default function AuthModal({ users, onSuccess, onClose, onUserCreated }) {
-  const [isRegistering, setIsRegistering] = useState(false);
-  
-  // Login State
-  const [selectedUser, setSelectedUser] = useState(users[0] || null);
+export default function AuthModal({ users, onSuccess, onUserCreated, onClose }) {
+  const [mode, setMode] = useState('login'); // 'login' | 'create'
+  const [selectedUserId, setSelectedUserId] = useState(users[0]?.id || users[0]?.name || '');
   const [pin, setPin] = useState('');
-  
-  // Register State
   const [newName, setNewName] = useState('');
   const [newPin, setNewPin] = useState('');
-
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // --- LOG IN EXISTING USER ---
   const handleLogin = async (e) => {
     e.preventDefault();
-    if (!selectedUser) return;
-    setLoading(true);
     setError('');
+    setLoading(true);
 
-    const { data: user, error: fetchError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', selectedUser.id)
-      .single();
+    try {
+      const selectedUserObj = users.find(
+        (u) => u.id === selectedUserId || u.name === selectedUserId
+      );
 
-    if (fetchError || !user) {
-      setError('User not found.');
-    } else if (user.pin === pin) {
-      localStorage.setItem('currentUser', JSON.stringify(user));
-      onSuccess(user);
-    } else {
-      setError('Incorrect PIN.');
+      if (!selectedUserObj) {
+        setError('Please select a valid user.');
+        setLoading(false);
+        return;
+      }
+
+      const { data, error: fetchErr } = await supabase
+        .from('users')
+        .select('*')
+        .eq('name', selectedUserObj.name)
+        .single();
+
+      if (fetchErr || !data) {
+        setError('User not found or PIN not set.');
+        setLoading(false);
+        return;
+      }
+
+      if (data.pin !== pin) {
+        setError('Incorrect 4-digit PIN.');
+        setLoading(false);
+        return;
+      }
+
+      const loggedInUser = { id: data.id, name: data.name };
+      localStorage.setItem('currentUser', JSON.stringify(loggedInUser));
+      onSuccess(loggedInUser);
+    } catch (err) {
+      setError(err.message || 'Login failed.');
     }
     setLoading(false);
   };
 
-  // --- REGISTER NEW USER ---
-  const handleRegister = async (e) => {
+  const handleCreateProfile = async (e) => {
     e.preventDefault();
+    setError('');
     if (!newName.trim() || newPin.length < 4) {
-      setError('Please provide a name and a 4-digit PIN.');
+      setError('Please enter a valid name and a 4-digit PIN.');
       return;
     }
     setLoading(true);
-    setError('');
 
-    // Generate a simple unique ID from name (e.g., "John Doe" -> "john_doe")
-    const generatedId = newName.trim().toLowerCase().replace(/\s+/g, '_');
+    try {
+      const { data, error: createErr } = await supabase
+        .from('users')
+        .insert([{ name: newName.trim(), pin: newPin.trim() }])
+        .select()
+        .single();
 
-    // Check if ID already exists
-    const { data: existing } = await supabase
-      .from('users')
-      .select('id')
-      .eq('id', generatedId)
-      .single();
+      if (createErr) {
+        if (createErr.code === '23505') {
+          throw new Error('A profile with that name already exists.');
+        }
+        throw createErr;
+      }
 
-    if (existing) {
-      setError('That name is already taken. Try adding an initial.');
-      setLoading(false);
-      return;
-    }
-
-    // Insert new user
-    const newUser = {
-      id: generatedId,
-      name: newName.trim(),
-      pin: newPin,
-    };
-
-    const { error: insertError } = await supabase
-      .from('users')
-      .insert([newUser]);
-
-    if (insertError) {
-      setError('Could not create profile. Try again.');
-    } else {
-      // Save session & return
-      localStorage.setItem('currentUser', JSON.stringify(newUser));
-      if (onUserCreated) onUserCreated(); // Refresh user list in parent
-      onSuccess(newUser);
+      const createdUser = { id: data.id, name: data.name };
+      localStorage.setItem('currentUser', JSON.stringify(createdUser));
+      if (onUserCreated) onUserCreated();
+      onSuccess(createdUser);
+    } catch (err) {
+      setError(err.message || 'Failed to create profile.');
     }
     setLoading(false);
   };
 
   return (
-    <div className="modal-overlay">
-      <div className="modal-content">
-        {!isRegistering ? (
-          /* LOGIN FORM */
-          <form onSubmit={handleLogin}>
-            <h3>Select Your Name</h3>
-            <select
-              value={selectedUser?.id || ''}
-              onChange={(e) => setSelectedUser(users.find((u) => u.id === e.target.value))}
-            >
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
-                </option>
-              ))}
-            </select>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-line p-6 sm:p-8">
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-muted hover:text-ink transition-colors p-1 text-xl font-bold"
+          aria-label="Close"
+        >
+          &times;
+        </button>
 
-            <input
-              type="password"
-              maxLength={4}
-              placeholder="Enter 4-digit PIN"
-              value={pin}
-              onChange={(e) => setPin(e.target.value)}
-            />
-
-            {error && <p className="error">{error}</p>}
-
-            <button type="submit" disabled={loading || pin.length < 4}>
-              {loading ? 'Verifying...' : 'Log In'}
-            </button>
-
-            <hr />
-            <p>
-              First time here?{' '}
-              <button type="button" onClick={() => { setIsRegistering(true); setError(''); }}>
-                Create a Profile
-              </button>
+        {mode === 'login' ? (
+          <div>
+            <h3 className="font-display text-xl font-semibold text-ink mb-1">
+              Log In to Your Profile
+            </h3>
+            <p className="text-xs text-muted mb-6">
+              Select your name and enter your 4-digit PIN to submit picks.
             </p>
-          </form>
+
+            {error && (
+              <div className="mb-4 text-xs bg-red-50 text-red-600 border border-red-200 p-2.5 rounded-lg">
+                {error}
+              </div>
+            )}
+
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-ink mb-1">
+                  Select User
+                </label>
+                <select
+                  value={selectedUserId}
+                  onChange={(e) => setSelectedUserId(e.target.value)}
+                  className="w-full bg-paper border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-crimson"
+                >
+                  {users.map((u) => (
+                    <option key={u.id || u.name} value={u.id || u.name}>
+                      {u.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-ink mb-1">
+                  4-Digit PIN
+                </label>
+                <input
+                  type="password"
+                  maxLength={4}
+                  placeholder="••••"
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value)}
+                  className="w-full bg-paper border border-line rounded-lg px-3 py-2 text-sm text-ink tracking-widest focus:outline-none focus:ring-2 focus:ring-crimson"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-crimson text-white font-medium py-2.5 rounded-lg text-sm hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                {loading ? 'Authenticating…' : 'Log In'}
+              </button>
+            </form>
+
+            <div className="mt-5 pt-4 border-t border-line text-center">
+              <p className="text-xs text-muted">
+                Don&rsquo;t have a profile yet?{' '}
+                <button
+                  onClick={() => {
+                    setError('');
+                    setMode('create');
+                  }}
+                  className="text-crimson font-medium hover:underline"
+                >
+                  Create New Profile
+                </button>
+              </p>
+            </div>
+          </div>
         ) : (
-          /* REGISTER FORM */
-          <form onSubmit={handleRegister}>
-            <h3>Create Profile</h3>
-            <input
-              type="text"
-              placeholder="Your Name"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-            />
-
-            <input
-              type="password"
-              maxLength={4}
-              placeholder="Create 4-digit PIN"
-              value={newPin}
-              onChange={(e) => setNewPin(e.target.value)}
-            />
-
-            {error && <p className="error">{error}</p>}
-
-            <button type="submit" disabled={loading || !newName || newPin.length < 4}>
-              {loading ? 'Creating...' : 'Save & Log In'}
-            </button>
-
-            <hr />
-            <p>
-              Already have a profile?{' '}
-              <button type="button" onClick={() => { setIsRegistering(false); setError(''); }}>
-                Back to Login
-              </button>
+          <div>
+            <h3 className="font-display text-xl font-semibold text-ink mb-1">
+              Create New Profile
+            </h3>
+            <p className="text-xs text-muted mb-6">
+              Enter your name and create a 4-digit PIN for future logins.
             </p>
-          </form>
+
+            {error && (
+              <div className="mb-4 text-xs bg-red-50 text-red-600 border border-red-200 p-2.5 rounded-lg">
+                {error}
+              </div>
+            )}
+
+            <form onSubmit={handleCreateProfile} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-ink mb-1">
+                  Your Name
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. John"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  className="w-full bg-paper border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-crimson"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-ink mb-1">
+                  Create 4-Digit PIN
+                </label>
+                <input
+                  type="password"
+                  maxLength={4}
+                  placeholder="••••"
+                  value={newPin}
+                  onChange={(e) => setNewPin(e.target.value)}
+                  className="w-full bg-paper border border-line rounded-lg px-3 py-2 text-sm text-ink tracking-widest focus:outline-none focus:ring-2 focus:ring-crimson"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-crimson text-white font-medium py-2.5 rounded-lg text-sm hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                {loading ? 'Creating Profile…' : 'Save & Log In'}
+              </button>
+            </form>
+
+            <div className="mt-5 pt-4 border-t border-line text-center">
+              <p className="text-xs text-muted">
+                Already have a profile?{' '}
+                <button
+                  onClick={() => {
+                    setError('');
+                    setMode('login');
+                  }}
+                  className="text-crimson font-medium hover:underline"
+                >
+                  Back to Login
+                </button>
+              </p>
+            </div>
+          </div>
         )}
-        <button type="button" className="close-btn" onClick={onClose}>Close</button>
       </div>
     </div>
   );
