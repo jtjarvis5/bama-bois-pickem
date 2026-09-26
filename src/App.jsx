@@ -18,7 +18,7 @@ export default function App() {
 
   useEffect(() => {
     async function loadGames() {
-      const liveGames = await fetchWeeklyGames(2026, weekNum);
+      const liveGames = await fetchWeeklyGames(2026, 4);
       if (liveGames.length > 0) setGames(liveGames);
     }
     loadGames();
