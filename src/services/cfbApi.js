@@ -1,7 +1,21 @@
 const CFBD_API_KEY = import.meta.env.VITE_CFBD_API_KEY;
 const BASE_URL = 'https://api.collegefootballdata.com';
 
-export async function fetchWeeklyGames(year = 2026, week = 4) {
+// Helper function to dynamically figure out the current college football week
+function getCurrentWeek() {
+  const now = new Date();
+  // Approximate Thursday of Week 1 for the 2026 season (August 27, 2026)
+  const seasonStart = new Date('2026-08-27T00:00:00Z');
+  const diffTime = now - seasonStart;
+  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  
+  if (diffDays < 0) return 1; // Before season starts, default to Week 1
+  const calculatedWeek = Math.floor(diffDays / 7) + 1;
+  // Cap it between week 1 and 15 to stay safe
+  return Math.min(Math.max(calculatedWeek, 1), 15);
+}
+
+export async function fetchWeeklyGames(year = 2026, week = getCurrentWeek()) {
   try {
     const gamesRes = await fetch(`${BASE_URL}/games?year=${year}&week=${week}&seasonType=regular`, {
       headers: { Authorization: `Bearer ${CFBD_API_KEY}` }
@@ -57,3 +71,4 @@ export async function fetchWeeklyGames(year = 2026, week = 4) {
     return [];
   }
 }
+
