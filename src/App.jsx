@@ -15,7 +15,7 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [apiError, setApiError] = useState(null); // Added error tracker
 
-  const weekNum = 4; // Hardcoded to Week 4 for testing
+  const weekNum = 3; // Hardcoded to Week 4 for testing
 
   useEffect(() => {
     async function loadGames() {
