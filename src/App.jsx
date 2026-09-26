@@ -7,6 +7,7 @@ import { copyPicksToClipboard } from './utils/exportHelpers';
 import PickMatrix from './components/PickMatrix';
 import AuthModal from './components/AuthModal';
 import CreateLeagueModal from './components/CreateLeagueModal';
+import JoinLeagueModal from './components/JoinLeagueModal';
 
 function Chevron() {
   return (
@@ -71,6 +72,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showLeagueModal, setShowLeagueModal] = useState(false);
+  const [leagueToJoin, setLeagueToJoin] = useState(null);
   const [usersList, setUsersList] = useState([]);
 
   const weekNum = parseInt(selectedWeek.split(' ')[1], 10);
@@ -179,17 +181,52 @@ export default function App() {
 
   useEffect(() => {
     async function loadSeasonStandingsData() {
-      const [{ data: picksData }, cachedByWeek] = await Promise.all([
+      // Fetch members specifically mapped to this league to keep standings clean
+      const [{ data: membersData }, { data: picksData }, cachedByWeek] = await Promise.all([
+        supabase.from('league_members').select('user_name').eq('league_id', selectedLeagueId),
         supabase.from('user_picks').select('*').eq('league_id', selectedLeagueId),
         getCachedGamesByWeek(2026, activeLeague.sport),
       ]);
+      
       if (picksData) setSeasonPicks(picksData);
       setGamesByWeek(cachedByWeek);
     }
     if (selectedLeagueId) loadSeasonStandingsData();
   }, [weekNum, selectedLeagueId, activeLeague]);
 
+  // Restrict Standings members to those who have joined this specific league
+  const [leagueMembers, setLeagueMembers] = useState([]);
+  useEffect(() => {
+    async function fetchLeagueMembers() {
+      const { data } = await supabase.from('league_members').select('user_name').eq('league_id', selectedLeagueId);
+      if (data) setLeagueMembers(data.map(m => m.user_name));
+    }
+    if (selectedLeagueId) fetchLeagueMembers();
+  }, [selectedLeagueId, allLeaguePicks]);
+
   const availableMembers = usersList.map((u) => u.name);
+  const activeStandingsMembers = leagueMembers.length > 0 ? leagueMembers : availableMembers;
+
+  const handleLeagueChange = async (newLeagueId) => {
+    if (!currentUser) return setShowAuthModal(true);
+    
+    const targetLeague = leagues.find(l => l.id === newLeagueId);
+    if (!targetLeague) return;
+
+    // Check if the current user is a member of this league
+    const { data: membership } = await supabase
+      .from('league_members')
+      .select('*')
+      .eq('league_id', newLeagueId)
+      .eq('user_name', currentUser.name)
+      .single();
+
+    if (!membership) {
+      setLeagueToJoin(targetLeague);
+    } else {
+      setSelectedLeagueId(newLeagueId);
+    }
+  };
 
   const saveToSupabase = async (activeUser, newPicks) => {
     setIsSaving(true);
@@ -241,7 +278,7 @@ export default function App() {
     await saveToSupabase(currentUser.name, updatedPicks);
   };
 
-  const standings = calculateSeasonStandings(seasonPicks, gamesByWeek, availableMembers);
+  const standings = calculateSeasonStandings(seasonPicks, gamesByWeek, activeStandingsMembers);
   const lockedGameId = Object.keys(picks).find((id) => picks[id]?.isLock);
   const lockedGame = games.find((g) => g.id.toString() === lockedGameId?.toString());
 
@@ -284,7 +321,7 @@ export default function App() {
               <div className="relative">
                 <select
                   value={selectedLeagueId}
-                  onChange={(e) => setSelectedLeagueId(parseInt(e.target.value, 10))}
+                  onChange={(e) => handleLeagueChange(parseInt(e.target.value, 10))}
                   className="appearance-none bg-white/20 text-white text-sm font-medium rounded-full pl-4 pr-9 py-2 border border-white/15 focus:outline-none focus:ring-2 focus:ring-white/40"
                 >
                   {leagues.map(l => <option key={l.id} value={l.id} className="text-ink">{l.name} ({l.sport})</option>)}
@@ -292,7 +329,10 @@ export default function App() {
                 <Chevron />
               </div>
               <button 
-                onClick={() => setShowLeagueModal(true)}
+                onClick={() => {
+                  if (!currentUser) setShowAuthModal(true);
+                  else setShowLeagueModal(true);
+                }}
                 className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-full border border-white/15 transition-colors"
                 title="Create new league"
               >
@@ -481,7 +521,7 @@ export default function App() {
           games={games}
           allLeaguePicks={allLeaguePicks}
           currentUser={selectedUser}
-          allMembers={availableMembers}
+          allMembers={activeStandingsMembers}
         />
 
         <h2 className="font-display text-lg font-semibold text-ink mt-10 mb-3">Season standings</h2>
@@ -530,11 +570,24 @@ export default function App() {
 
       {showLeagueModal && (
         <CreateLeagueModal
+          currentUser={currentUser}
           onClose={() => setShowLeagueModal(false)}
           onLeagueCreated={(newLeague) => {
             setLeagues((prev) => [...prev, newLeague]);
             setSelectedLeagueId(newLeague.id);
             setShowLeagueModal(false);
+          }}
+        />
+      )}
+
+      {leagueToJoin && (
+        <JoinLeagueModal
+          league={leagueToJoin}
+          currentUser={currentUser}
+          onClose={() => setLeagueToJoin(null)}
+          onJoined={(joinedLeagueId) => {
+            setSelectedLeagueId(joinedLeagueId);
+            setLeagueToJoin(null);
           }}
         />
       )}
