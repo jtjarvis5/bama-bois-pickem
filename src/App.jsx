@@ -9,16 +9,8 @@ import {
   Share2, 
   Copy, 
   Zap, 
-  Clock, 
-  PieChart, 
-  Database,
-  Info,
   Flame,
-  Users,
-  TrendingUp,
-  ArrowUpRight,
-  ArrowDownRight,
-  Layers
+  Users
 } from 'lucide-react';
 
 const LEAGUE_MEMBERS = [
@@ -280,9 +272,6 @@ export default function App() {
   const [selectedWeek, setSelectedWeek] = useState('Week 5');
   const [currentUser, setCurrentUser] = useState('tyler');
   const [activeTab, setActiveTab] = useState('make-picks');
-
-  const [supabaseUrl, setSupabaseUrl] = useState('');
-  const [supabaseAnonKey, setSupabaseAnonKey] = useState('');
 
   const getStorage = (key, fallback) => {
     try {
@@ -603,6 +592,435 @@ export default function App() {
 
           </div>
 
-          {}
+          {/* Navigation Tabs */}
           <div className="mt-3 pt-2 border-t border-slate-800/60 flex items-center justify-between overflow-x-auto gap-1">
-            <div className="bg-slate-900/90 border border-slate-800/80 p-1 rounded-2xl flex items-center gap-1 w-full max-w-2xl min-
+            <div className="bg-slate-900/90 border border-slate-800/80 p-1 rounded-2xl flex items-center gap-1 w-full max-w-md">
+              <button
+                onClick={() => setActiveTab('make-picks')}
+                className={`flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 ${
+                  activeTab === 'make-picks'
+                    ? 'bg-gradient-to-r from-red-700 to-rose-700 text-white shadow-md'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                }`}
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>Make Picks</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('leaderboard')}
+                className={`flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 ${
+                  activeTab === 'leaderboard'
+                    ? 'bg-gradient-to-r from-red-700 to-rose-700 text-white shadow-md'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                }`}
+              >
+                <Trophy className="w-3.5 h-3.5" />
+                <span>Leaderboard</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('consensus')}
+                className={`flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 ${
+                  activeTab === 'consensus'
+                    ? 'bg-gradient-to-r from-red-700 to-rose-700 text-white shadow-md'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                }`}
+              >
+                <BarChart3 className="w-3.5 h-3.5" />
+                <span>Consensus</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content Area */}
+      <main className="max-w-5xl mx-auto px-4 py-6">
+        
+        {/* TAB 1: MAKE PICKS */}
+        {activeTab === 'make-picks' && (
+          <div className="space-y-6">
+            
+            {/* Banner Status */}
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isSubmitted ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-amber-950 text-amber-400 border border-amber-800'}`}>
+                  {isSubmitted ? <Lock className="w-5 h-5" /> : <Unlock className="w-5 h-5" />}
+                </div>
+                <div>
+                  <h3 className="font-black text-sm text-slate-100">
+                    {isSubmitted ? 'Slate Locked & Submitted' : 'Slate Unlocked — Selection Mode'}
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    {isSubmitted ? 'Your picks are saved. Unlock below if you need to modify before kickoff.' : 'Pick spread (side) OR total (O/U) for each of the 10 games.'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 w-full md:w-auto">
+                <button
+                  onClick={() => openShareModal('picks')}
+                  className="flex-1 md:flex-none px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-all flex items-center justify-center gap-2 border border-slate-700"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                  <span>Share My Picks</span>
+                </button>
+                <button
+                  onClick={handleToggleSubmit}
+                  className={`flex-1 md:flex-none px-5 py-2.5 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 shadow-lg ${
+                    isSubmitted
+                      ? 'bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30'
+                      : 'bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white shadow-red-950/50'
+                  }`}
+                >
+                  {isSubmitted ? <Unlock className="w-3.5 h-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                  <span>{isSubmitted ? 'Unlock Picks' : 'Lock & Submit Slate'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Games Cards Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {INITIAL_GAMES.map((game) => {
+                const currentPick = userPicks[game.id];
+                const isLock = lockGameId === game.id;
+
+                return (
+                  <div 
+                    key={game.id} 
+                    className={`bg-slate-900/90 rounded-2xl p-4 border transition-all ${
+                      game.isBama 
+                        ? 'border-red-800/80 ring-1 ring-red-600/30 shadow-lg shadow-red-950/20' 
+                        : 'border-slate-800/90 hover:border-slate-700'
+                    }`}
+                  >
+                    {/* Game Header */}
+                    <div className="flex items-center justify-between mb-3 text-[11px] text-slate-400 font-bold">
+                      <div className="flex items-center gap-2">
+                        {game.isBama && (
+                          <span className="bg-red-950 text-red-300 px-2 py-0.5 rounded-full border border-red-800/80 font-black text-[10px]">
+                            🐘 BAMA GAME
+                          </span>
+                        )}
+                        <span>{game.time} • {game.network}</span>
+                      </div>
+                      <button
+                        onClick={() => handleSetLock(game.id)}
+                        disabled={isSubmitted}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 transition-all ${
+                          isLock 
+                            ? 'bg-amber-400 text-slate-950 shadow-md shadow-amber-950/50 ring-2 ring-amber-300' 
+                            : 'bg-slate-800/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-700/60'
+                        }`}
+                      >
+                        <Lock className="w-3 h-3" />
+                        {isLock ? 'LOCK 2x' : 'Set Lock'}
+                      </button>
+                    </div>
+
+                    {/* Matchup Header */}
+                    <div className="flex items-center justify-between mb-4 bg-slate-950/50 p-2.5 rounded-xl border border-slate-800/50">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">{game.awayLogo}</span>
+                        <span className="font-black text-sm text-slate-100">{game.awayAbbr}</span>
+                      </div>
+                      <span className="text-xs text-slate-500 font-bold">@</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-black text-sm text-slate-100">{game.homeAbbr}</span>
+                        <span className="text-xl">{game.homeLogo}</span>
+                      </div>
+                    </div>
+
+                    {/* Pick Options */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        disabled={isSubmitted}
+                        onClick={() => handleSelectPick(game.id, 'away')}
+                        className={`p-2.5 rounded-xl border text-left transition-all ${
+                          currentPick === 'away'
+                            ? 'bg-gradient-to-r from-red-900/90 to-rose-900/90 border-red-500 text-white font-black ring-1 ring-red-400'
+                            : 'bg-slate-950/40 border-slate-800/80 hover:bg-slate-800/60 text-slate-300 font-medium'
+                        }`}
+                      >
+                        <div className="text-[10px] text-slate-400 uppercase font-bold">Away Spread</div>
+                        <div className="text-xs font-bold">{game.awayAbbr} {game.awaySpread > 0 ? `+${game.awaySpread}` : game.awaySpread}</div>
+                      </button>
+
+                      <button
+                        disabled={isSubmitted}
+                        onClick={() => handleSelectPick(game.id, 'home')}
+                        className={`p-2.5 rounded-xl border text-left transition-all ${
+                          currentPick === 'home'
+                            ? 'bg-gradient-to-r from-red-900/90 to-rose-900/90 border-red-500 text-white font-black ring-1 ring-red-400'
+                            : 'bg-slate-950/40 border-slate-800/80 hover:bg-slate-800/60 text-slate-300 font-medium'
+                        }`}
+                      >
+                        <div className="text-[10px] text-slate-400 uppercase font-bold">Home Spread</div>
+                        <div className="text-xs font-bold">{game.homeAbbr} {game.homeSpread > 0 ? `+${game.homeSpread}` : game.homeSpread}</div>
+                      </button>
+
+                      <button
+                        disabled={isSubmitted}
+                        onClick={() => handleSelectPick(game.id, 'over')}
+                        className={`p-2.5 rounded-xl border text-left transition-all ${
+                          currentPick === 'over'
+                            ? 'bg-gradient-to-r from-amber-900/80 to-orange-900/80 border-amber-500 text-white font-black ring-1 ring-amber-400'
+                            : 'bg-slate-950/40 border-slate-800/80 hover:bg-slate-800/60 text-slate-300 font-medium'
+                        }`}
+                      >
+                        <div className="text-[10px] text-slate-400 uppercase font-bold">Total Point</div>
+                        <div className="text-xs font-bold">OVER {game.totalLine}</div>
+                      </button>
+
+                      <button
+                        disabled={isSubmitted}
+                        onClick={() => handleSelectPick(game.id, 'under')}
+                        className={`p-2.5 rounded-xl border text-left transition-all ${
+                          currentPick === 'under'
+                            ? 'bg-gradient-to-r from-amber-900/80 to-orange-900/80 border-amber-500 text-white font-black ring-1 ring-amber-400'
+                            : 'bg-slate-950/40 border-slate-800/80 hover:bg-slate-800/60 text-slate-300 font-medium'
+                        }`}
+                      >
+                        <div className="text-[10px] text-slate-400 uppercase font-bold">Total Point</div>
+                        <div className="text-xs font-bold">UNDER {game.totalLine}</div>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Tiebreaker Section */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-8 h-8 rounded-xl bg-red-950 border border-red-800 flex items-center justify-center text-red-300 font-black">
+                  🐘
+                </div>
+                <div>
+                  <h4 className="font-black text-sm text-slate-100">Weekly Tiebreaker</h4>
+                  <p className="text-xs text-slate-400">Predict the combined total points scored in the Alabama vs. Georgia game.</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-4 bg-slate-950 p-4 rounded-xl border border-slate-800">
+                <input
+                  type="number"
+                  disabled={isSubmitted}
+                  value={tiebreakerPoint}
+                  onChange={(e) => setTiebreakerPoint(Number(e.target.value))}
+                  className="w-24 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-amber-300 font-black text-center text-lg focus:outline-none focus:border-amber-400"
+                />
+                <div className="text-xs text-slate-400">
+                  <span className="font-bold text-slate-200">Total Points Prediction</span>
+                  <p>Closest score breaks any ties for weekly 1st place.</p>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        )}
+
+        {/* TAB 2: LEADERBOARD */}
+        {activeTab === 'leaderboard' && (
+          <div className="space-y-6">
+            
+            {/* Header Action */}
+            <div className="flex items-center justify-between bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
+              <div>
+                <h3 className="font-black text-sm text-slate-100">{selectedWeek} Standings & Recap</h3>
+                <p className="text-xs text-slate-400">Weekly rankings evaluated with 2x points for correct Locks.</p>
+              </div>
+              <button
+                onClick={() => openShareModal('summary')}
+                className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black transition-all flex items-center gap-1.5 shadow-md"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Share Recap</span>
+              </button>
+            </div>
+
+            {/* Weekly Standings Table */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-xl overflow-x-auto">
+              <h4 className="font-black text-xs uppercase tracking-wider text-amber-400 mb-3 flex items-center gap-2">
+                <Trophy className="w-4 h-4" /> Weekly Leaderboard
+              </h4>
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400 uppercase font-black text-[10px]">
+                    <th className="py-2.5 px-3">Rank</th>
+                    <th className="py-2.5 px-3">Member</th>
+                    <th className="py-2.5 px-3 text-center">Correct</th>
+                    <th className="py-2.5 px-3 text-center">Lock (2x)</th>
+                    <th className="py-2.5 px-3 text-center">Tiebreaker Diff</th>
+                    <th className="py-2.5 px-3 text-right">Points</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 font-medium">
+                  {weeklyScores.map((score, idx) => (
+                    <tr key={score.id} className={score.isWinner ? 'bg-amber-500/10' : score.isBum ? 'bg-red-500/10' : ''}>
+                      <td className="py-3 px-3 font-black">
+                        {idx === 0 ? '👑 1st' : idx === 1 ? '🥈 2nd' : idx === 2 ? '🥉 3rd' : `${idx + 1}th`}
+                      </td>
+                      <td className="py-3 px-3 font-bold flex items-center gap-2">
+                        <span>{score.avatar}</span>
+                        <span className={score.id === currentUser ? 'text-amber-300 font-black' : 'text-slate-100'}>
+                          {score.name}
+                        </span>
+                        {score.isBum && <span className="text-xs">💩</span>}
+                      </td>
+                      <td className="py-3 px-3 text-center font-bold text-slate-200">{score.correctCount}/10</td>
+                      <td className="py-3 px-3 text-center">
+                        {score.lockHit ? (
+                          <span className="text-emerald-400 font-bold bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-800">✅ Hit (+2)</span>
+                        ) : (
+                          <span className="text-red-400 font-bold bg-red-950/80 px-2 py-0.5 rounded-full border border-red-800">❌ Miss</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3 text-center text-slate-400 font-mono">{score.tbDiff} pts off</td>
+                      <td className="py-3 px-3 text-right font-black text-amber-300 text-sm">{score.totalPoints} pts</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Overall Season Standings */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-xl overflow-x-auto">
+              <h4 className="font-black text-xs uppercase tracking-wider text-red-400 mb-3 flex items-center gap-2">
+                <Flame className="w-4 h-4" /> Season Standings
+              </h4>
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400 uppercase font-black text-[10px]">
+                    <th className="py-2.5 px-3">Rank</th>
+                    <th className="py-2.5 px-3">Member</th>
+                    <th className="py-2.5 px-3 text-center">Record (W-L)</th>
+                    <th className="py-2.5 px-3 text-center">Bama Picks</th>
+                    <th className="py-2.5 px-3 text-center">Bum Badges</th>
+                    <th className="py-2.5 px-3 text-right">Streak</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 font-medium">
+                  {SEASON_STANDINGS_BASE.map((st, idx) => (
+                    <tr key={st.id}>
+                      <td className="py-3 px-3 font-black text-slate-400">{idx + 1}</td>
+                      <td className="py-3 px-3 font-bold text-slate-100">{st.name}</td>
+                      <td className="py-3 px-3 text-center font-mono text-slate-200">{st.wins}-{st.losses}</td>
+                      <td className="py-3 px-3 text-center text-amber-300 font-bold">{st.bamaCorrect} Correct</td>
+                      <td className="py-3 px-3 text-center">
+                        {st.bumCount > 0 ? (
+                          <span className="text-xs bg-slate-800 px-2 py-0.5 rounded-full border border-slate-700 font-bold">
+                            {'💩'.repeat(st.bumCount)}
+                          </span>
+                        ) : (
+                          <span className="text-slate-600">-</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3 text-right font-black">
+                        <span className={st.streak.startsWith('W') ? 'text-emerald-400' : 'text-red-400'}>
+                          {st.streak}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+          </div>
+        )}
+
+        {/* TAB 3: CONSENSUS */}
+        {activeTab === 'consensus' && (
+          <div className="space-y-4">
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
+              <h3 className="font-black text-sm text-slate-100 flex items-center gap-2">
+                <Users className="w-4 h-4 text-amber-400" /> League Consensus Trends
+              </h3>
+              <p className="text-xs text-slate-400">See how all 5 league members are leaning across sides and total lines.</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {INITIAL_GAMES.map((game) => {
+                const stats = consensusData[game.id];
+                return (
+                  <div key={game.id} className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-200">
+                      <span>{game.awayAbbr} @ {game.homeAbbr}</span>
+                      <span className="text-[10px] text-slate-500 font-mono">O/U {game.totalLine}</span>
+                    </div>
+
+                    {/* Spread Breakdown Bar */}
+                    <div>
+                      <div className="flex justify-between text-[11px] font-bold text-slate-400 mb-1">
+                        <span>{game.awayAbbr} ({stats.awayCount})</span>
+                        <span>{game.homeAbbr} ({stats.homeCount})</span>
+                      </div>
+                      <div className="h-2.5 bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
+                        <div style={{ width: `${stats.awayPct}%` }} className="bg-blue-600 transition-all"></div>
+                        <div style={{ width: `${stats.homePct}%` }} className="bg-rose-600 transition-all"></div>
+                      </div>
+                    </div>
+
+                    {/* Total Breakdown Bar */}
+                    <div>
+                      <div className="flex justify-between text-[11px] font-bold text-slate-400 mb-1">
+                        <span>OVER ({stats.overCount})</span>
+                        <span>UNDER ({stats.underCount})</span>
+                      </div>
+                      <div className="h-2.5 bg-slate-950 rounded-full overflow-hidden flex border border-slate-800">
+                        <div style={{ width: `${stats.overPct}%` }} className="bg-amber-500 transition-all"></div>
+                        <div style={{ width: `${stats.underPct}%` }} className="bg-teal-600 transition-all"></div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+      </main>
+
+      {/* Share Modal */}
+      {shareModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-black text-sm text-slate-100 flex items-center gap-2">
+                <Share2 className="w-4 h-4 text-amber-400" /> Share to Group Chat
+              </h3>
+              <button 
+                onClick={() => setShareModalOpen(false)}
+                className="text-slate-400 hover:text-white font-black text-sm p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <textarea
+              readOnly
+              rows={10}
+              value={shareTextContent}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs font-mono text-slate-300 focus:outline-none resize-none"
+            />
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleCopyClipboard(shareTextContent)}
+                className="flex-1 py-3 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-xl font-black text-xs transition-all flex items-center justify-center gap-2 shadow-lg"
+              >
+                <Copy className="w-4 h-4" />
+                <span>Copy Text</span>
+              </button>
+              <button
+                onClick={() => setShareModalOpen(false)}
+                className="px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs transition-all"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
