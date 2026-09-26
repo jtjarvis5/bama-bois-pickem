@@ -1,7 +1,7 @@
 const CFBD_API_KEY = import.meta.env.VITE_CFBD_API_KEY;
 const BASE_URL = 'https://api.collegefootballdata.com';
 
-export async function fetchWeeklyGames(year = 2026, week = 5) {
+export async function fetchWeeklyGames(year = 2026, week = 4) {
   try {
     const gamesRes = await fetch(`${BASE_URL}/games?year=${year}&week=${week}&seasonType=regular`, {
       headers: { Authorization: `Bearer ${CFBD_API_KEY}` }
