@@ -110,7 +110,7 @@ export default function App() {
       if (error) throw error;
     } catch (err) {
       console.error('Failed to save pick:', err);
-      alert('Your pick may not have saved — check your connection and try again.');
+      alert(`Pick didn't save: ${err.message || 'unknown error'}`);
     }
     setIsSaving(false);
   };
@@ -126,10 +126,16 @@ export default function App() {
     }
     setPicks(updatedPicks);
     setIsSaving(true);
-    await supabase.from('user_picks').upsert(
-      { user_name: selectedUser, week: weekNum, picks: updatedPicks, updated_at: new Date().toISOString() },
-      { onConflict: 'user_name,week' }
-    );
+    try {
+      const { error } = await supabase.from('user_picks').upsert(
+        { user_name: selectedUser, week: weekNum, picks: updatedPicks, updated_at: new Date().toISOString() },
+        { onConflict: 'user_name,week' }
+      );
+      if (error) throw error;
+    } catch (err) {
+      console.error('Failed to save lock:', err);
+      alert(`Lock didn't save: ${err.message || 'unknown error'}`);
+    }
     setIsSaving(false);
   };
 
@@ -285,7 +291,7 @@ export default function App() {
         </div>
 
         <h2 className="font-display text-lg font-semibold text-ink mb-3">Who picked who</h2>
-        <PickMatrix games={games} allLeaguePicks={allLeaguePicks} />
+        <PickMatrix games={games} allLeaguePicks={allLeaguePicks} currentUser={selectedUser} />
 
         <h2 className="font-display text-lg font-semibold text-ink mt-10 mb-3">Season standings</h2>
         <div className="rounded-card border border-line bg-white overflow-hidden overflow-x-auto">
