@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from '../supabaseClient';
 
 export default function AuthModal({ users, onSuccess, onClose, onUserCreated }) {
   const [isRegistering, setIsRegistering] = useState(false);
