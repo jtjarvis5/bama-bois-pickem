@@ -1,3 +1,24 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Tabular numerals everywhere scores/spreads/records appear, so columns
+   of numbers line up instead of jittering with proportional widths. */
+body {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Keyboard focus should always be visible, regardless of which control. */
+button:focus-visible,
+select:focus-visible,
+a:focus-visible {
+  outline: 2px solid #9E1B32;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.01ms !important;
+  }
+}
+
