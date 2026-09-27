@@ -1,13 +1,15 @@
+import { isGameLocked } from '../utils/getCurrentWeek';
+
 // Helper to evaluate if a pick won, lost, or pushed in the matrix view
 function getPickStatus(game, pick, type) {
   if (!game || game.status !== 'FINAL' || !pick) return null;
 
   if (type === 'spread' && pick.spread) {
     const homeMargin = game.homeScore - game.awayScore;
-    const spreadCovered = pick.spread === 'home' 
-      ? homeMargin + game.homeSpread 
+    const spreadCovered = pick.spread === 'home'
+      ? homeMargin + game.homeSpread
       : -homeMargin + game.awaySpread;
-    
+
     if (spreadCovered > 0) return 'win';
     if (spreadCovered < 0) return 'loss';
     return 'push';
@@ -24,8 +26,16 @@ function getPickStatus(game, pick, type) {
   return null;
 }
 
+function LockGlyph() {
+  return (
+    <svg className="inline-block w-3.5 h-3.5 text-muted/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+  );
+}
+
 export default function PickMatrix({ games = [], allLeaguePicks = [], currentUser, allMembers = [] }) {
-  // Map picks by username
   const picksByUser = {};
   allLeaguePicks.forEach((row) => {
     picksByUser[row.user_name] = row.picks || {};
@@ -73,59 +83,75 @@ export default function PickMatrix({ games = [], allLeaguePicks = [], currentUse
           </tr>
         </thead>
         <tbody>
-          {games.map((game) => (
-            <tr key={game.id} className="border-b border-line last:border-0 hover:bg-paper/30 transition-colors">
-              <td className="p-3">
-                <div className="font-semibold text-ink">
-                  {game.awayTeam} @ {game.homeTeam}
-                </div>
-                <div className="text-[10px] text-muted font-medium mt-0.5">{game.time}</div>
-              </td>
-              {allMembers.map((m) => {
-                const userPicks = picksByUser[m] || {};
-                const gamePick = userPicks[game.id];
+          {games.map((game) => {
+            const locked = isGameLocked(game.startDate);
+            return (
+              <tr key={game.id} className="border-b border-line last:border-0 hover:bg-paper/30 transition-colors">
+                <td className="p-3">
+                  <div className="font-semibold text-ink">
+                    {game.awayTeam} @ {game.homeTeam}
+                  </div>
+                  <div className="text-[10px] text-muted font-medium mt-0.5">{game.time}</div>
+                </td>
+                {allMembers.map((m) => {
+                  const isSelf = m === currentUser;
 
-                if (!gamePick || (!gamePick.spread && !gamePick.total)) {
+                  // Fairness: hide everyone else's picks for a game until
+                  // it actually kicks off, so nobody can copy a pick.
+                  // Your own column is always visible to you.
+                  if (!locked && !isSelf) {
+                    return (
+                      <td key={m} className="p-3 text-center">
+                        <LockGlyph />
+                      </td>
+                    );
+                  }
+
+                  const userPicks = picksByUser[m] || {};
+                  const gamePick = userPicks[game.id];
+
+                  if (!gamePick || (!gamePick.spread && !gamePick.total)) {
+                    return (
+                      <td key={m} className="p-3 text-center text-muted/30 font-medium">
+                        —
+                      </td>
+                    );
+                  }
+
+                  const spreadStatus = getPickStatus(game, gamePick, 'spread');
+                  const totalStatus = getPickStatus(game, gamePick, 'total');
+
                   return (
-                    <td key={m} className="p-3 text-center text-muted/30 font-medium">
-                      —
+                    <td key={m} className="p-3 text-center">
+                      <div className="space-y-1">
+                        {gamePick.spread && (
+                          <div className={getStatusClasses(spreadStatus)}>
+                            {gamePick.spread === 'away' ? game.awayTeam : game.homeTeam}
+                          </div>
+                        )}
+                        {gamePick.total && (
+                          <div className={`text-[10px] uppercase tracking-wide ${getStatusClasses(totalStatus)}`}>
+                            {gamePick.total} {game.overUnder}
+                          </div>
+                        )}
+                        {gamePick.isLock && (
+                          <div className="mt-1">
+                            <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                              spreadStatus === 'win' ? 'bg-emerald-100 text-emerald-700' :
+                              spreadStatus === 'loss' ? 'bg-red-100 text-red-700 opacity-60' :
+                              'bg-crimson/10 text-crimson'
+                            }`}>
+                              LOCK
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </td>
                   );
-                }
-
-                const spreadStatus = getPickStatus(game, gamePick, 'spread');
-                const totalStatus = getPickStatus(game, gamePick, 'total');
-
-                return (
-                  <td key={m} className="p-3 text-center">
-                    <div className="space-y-1">
-                      {gamePick.spread && (
-                        <div className={getStatusClasses(spreadStatus)}>
-                          {gamePick.spread === 'away' ? game.awayTeam : game.homeTeam}
-                        </div>
-                      )}
-                      {gamePick.total && (
-                        <div className={`text-[10px] uppercase tracking-wide ${getStatusClasses(totalStatus)}`}>
-                          {gamePick.total} {game.overUnder}
-                        </div>
-                      )}
-                      {gamePick.isLock && (
-                        <div className="mt-1">
-                          <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
-                            spreadStatus === 'win' ? 'bg-emerald-100 text-emerald-700' : 
-                            spreadStatus === 'loss' ? 'bg-red-100 text-red-700 opacity-60' :
-                            'bg-crimson/10 text-crimson'
-                          }`}>
-                            LOCK
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
+                })}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
