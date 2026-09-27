@@ -34,6 +34,46 @@ function gameImportance(game, rankMap) {
   return score;
 }
 
+// Team logos change essentially never mid-season, so this is cached far
+// longer than game data -- one CFBD call gets every FBS team's logo at
+// once, and it's reused for a month before asking again.
+const LOGO_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+async function fetchCFBLogosFromAPI() {
+  const res = await fetch(`${BASE_URL}/teams/fbs`, {
+    headers: { Authorization: `Bearer ${CFBD_API_KEY}` }
+  });
+  if (!res.ok) return {};
+  const teams = await res.json();
+  const logoMap = {};
+  teams.forEach((t) => {
+    if (t.logos && t.logos.length > 0) logoMap[t.school] = t.logos[0];
+  });
+  return logoMap;
+}
+
+async function getCFBLogoMap() {
+  const { data: cached } = await supabase
+    .from('team_logos')
+    .select('logos, fetched_at')
+    .eq('sport', 'CFB')
+    .maybeSingle();
+
+  if (cached?.logos && Object.keys(cached.logos).length > 0) {
+    const age = Date.now() - new Date(cached.fetched_at).getTime();
+    if (age < LOGO_TTL_MS) return cached.logos;
+  }
+
+  const freshLogos = await fetchCFBLogosFromAPI();
+  if (Object.keys(freshLogos).length > 0) {
+    await supabase
+      .from('team_logos')
+      .upsert({ sport: 'CFB', logos: freshLogos, fetched_at: new Date().toISOString() }, { onConflict: 'sport' });
+  }
+  // Fall back to a stale cached copy over nothing, if the fresh call failed.
+  return Object.keys(freshLogos).length > 0 ? freshLogos : (cached?.logos || {});
+}
+
 async function fetchCFBGames(year, week) {
   if (!CFBD_API_KEY) {
     throw new Error(
@@ -57,6 +97,7 @@ async function fetchCFBGames(year, week) {
   });
   const linesData = linesRes.ok ? await linesRes.json() : [];
   const rankMap = await fetchRankings(year, week);
+  const logoMap = await getCFBLogoMap();
 
   const linesMap = {};
   if (Array.isArray(linesData)) {
@@ -94,9 +135,11 @@ async function fetchCFBGames(year, week) {
       isBama,
       homeTeam: g.homeTeam,
       homeAbbr: g.homeTeam.substring(0, 4).toUpperCase(),
+      homeLogo: logoMap[g.homeTeam] || null,
       homeSpread,
       awayTeam: g.awayTeam,
       awayAbbr: g.awayTeam.substring(0, 4).toUpperCase(),
+      awayLogo: logoMap[g.awayTeam] || null,
       awaySpread,
       overUnder,
       startDate: g.startDate,
@@ -114,7 +157,12 @@ async function fetchCFBGames(year, week) {
   const rankedOthers = [...otherGames].sort((a, b) => gameImportance(b, rankMap) - gameImportance(a, rankMap));
   const topGames = rankedOthers.slice(0, 9);
 
-  return bamaGame ? [bamaGame, ...topGames] : rankedOthers.slice(0, 10);
+  // Importance decides which games make the cut; time decides the order
+  // they're displayed in, once selected.
+  const byKickoff = (a, b) => new Date(a.startDate) - new Date(b.startDate);
+  const chronologicalTop = [...topGames].sort(byKickoff);
+
+  return bamaGame ? [bamaGame, ...chronologicalTop] : rankedOthers.slice(0, 10).sort(byKickoff);
 }
 
 // ==========================================
@@ -147,9 +195,11 @@ async function fetchNFLGames(year, week) {
     const awaySpread = homeSpread !== 0 ? -homeSpread : 0;
     const overUnder = odds && odds.overUnder ? parseFloat(odds.overUnder) : null;
 
+    const statusState = event.status?.type?.state; // 'pre' | 'in' | 'post'
     const isCompleted = event.status.type.completed;
-    const homeScore = isCompleted ? parseInt(homeTeamData.score, 10) : null;
-    const awayScore = isCompleted ? parseInt(awayTeamData.score, 10) : null;
+    const hasStarted = statusState === 'in' || statusState === 'post' || isCompleted;
+    const homeScore = hasStarted ? parseInt(homeTeamData.score, 10) : null;
+    const awayScore = hasStarted ? parseInt(awayTeamData.score, 10) : null;
 
     let winningSpreadTeam = null;
     let winningTotal = null;
@@ -173,9 +223,11 @@ async function fetchNFLGames(year, week) {
       isBama: false,
       homeTeam: homeTeamData.team.displayName,
       homeAbbr: homeTeamData.team.abbreviation,
+      homeLogo: homeTeamData.team.logo || null,
       homeSpread,
       awayTeam: awayTeamData.team.displayName,
       awayAbbr: awayTeamData.team.abbreviation,
+      awayLogo: awayTeamData.team.logo || null,
       awaySpread,
       overUnder,
       startDate: event.date,
@@ -186,7 +238,7 @@ async function fetchNFLGames(year, week) {
       winningSpreadTeam,
       winningTotal
     };
-  });
+  }).sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
 }
 
 async function fetchWeeklyGames(year, week, sport = 'CFB') {
@@ -228,6 +280,66 @@ function pickTtl(cachedGames) {
   return anyInProgress ? LIVE_TTL_MS : IDLE_TTL_MS;
 }
 
+/**
+ * ESPN (and occasionally CFBD) stop returning betting odds for a game once
+ * it's underway or completed -- odds are a pregame feature, not historical
+ * data. On top of that, lines can move all week, which raises a fairness
+ * question: if the line moves after someone picks, are they graded on what
+ * they actually saw? To keep it simple and consistent across the whole
+ * league, the line freezes for everyone 24 hours before kickoff -- it can
+ * keep tracking the live market before that, but once inside the freeze
+ * window it locks to whatever was last cached and stays that way through
+ * kickoff, in-progress, and final (when ESPN drops the field entirely).
+ */
+const FREEZE_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours before kickoff
+
+function mergeGameOdds(freshGame, previousGamesById) {
+  const prev = previousGamesById[freshGame.id];
+  if (!prev) return freshGame;
+
+  const now = Date.now();
+  const kickoff = new Date(freshGame.startDate).getTime();
+  const isFrozen = now >= kickoff - FREEZE_WINDOW_MS;
+  const prevHasRealLine = prev.homeSpread !== 0 || prev.awaySpread !== 0 || prev.overUnder != null;
+
+  const freshHasSpread = freshGame.homeSpread !== 0 || freshGame.awaySpread !== 0;
+
+  let homeSpread, awaySpread, overUnder;
+  if (isFrozen && prevHasRealLine) {
+    // Inside the freeze window (or past kickoff) -- lock to what we
+    // already had, ignore whatever the fresh fetch says entirely.
+    homeSpread = prev.homeSpread;
+    awaySpread = prev.awaySpread;
+    overUnder = prev.overUnder;
+  } else {
+    // Still tracking the live market -- take the fresh value when it's
+    // real, otherwise fall back rather than zeroing out a known-good line.
+    homeSpread = freshHasSpread ? freshGame.homeSpread : (prev.homeSpread ?? 0);
+    awaySpread = freshHasSpread ? freshGame.awaySpread : (prev.awaySpread ?? 0);
+    overUnder = freshGame.overUnder != null ? freshGame.overUnder : (prev.overUnder ?? null);
+  }
+
+  const merged = { ...freshGame, homeSpread, awaySpread, overUnder };
+
+  if (merged.status === 'FINAL' && merged.homeScore != null && merged.awayScore != null) {
+    const homeMargin = merged.homeScore - merged.awayScore;
+    if (homeMargin + homeSpread > 0) merged.winningSpreadTeam = 'home';
+    else if (homeMargin + homeSpread < 0) merged.winningSpreadTeam = 'away';
+    else merged.winningSpreadTeam = 'push';
+
+    if (overUnder != null) {
+      const totalPoints = merged.homeScore + merged.awayScore;
+      if (totalPoints > overUnder) merged.winningTotal = 'over';
+      else if (totalPoints < overUnder) merged.winningTotal = 'under';
+      else merged.winningTotal = 'push';
+    } else {
+      merged.winningTotal = null;
+    }
+  }
+
+  return merged;
+}
+
 export async function getWeeklyGames(year, week, sport = 'CFB') {
   const cacheKey = `${sport}-${year}-${week}`;
 
@@ -254,10 +366,17 @@ export async function getWeeklyGames(year, week, sport = 'CFB') {
   // quota (for CFB) or hits ESPN (for NFL, which has no quota concern).
   const freshGames = await fetchWeeklyGames(year, week, sport);
 
+  // Protect against the odds-disappearing-after-kickoff issue: merge each
+  // fresh game against whatever we had cached before, preferring real
+  // spread/total values over ones that came back zeroed/missing.
+  const previousGamesById = {};
+  (cached?.games || []).forEach((g) => { previousGamesById[g.id] = g; });
+  const mergedGames = freshGames.map((g) => mergeGameOdds(g, previousGamesById));
+
   const { error: writeError } = await supabase
     .from('games_cache')
     .upsert(
-      { cache_key: cacheKey, year, week, sport, games: freshGames, fetched_at: new Date().toISOString() },
+      { cache_key: cacheKey, year, week, sport, games: mergedGames, fetched_at: new Date().toISOString() },
       { onConflict: 'cache_key' }
     );
 
@@ -265,7 +384,7 @@ export async function getWeeklyGames(year, week, sport = 'CFB') {
     console.error('Failed to write games_cache (check the table/policy exist):', writeError);
   }
 
-  return freshGames;
+  return mergedGames;
 }
 
 /**
