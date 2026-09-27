@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
-import { getWeeklyGames, getCachedGamesByWeek } from './services/gameCache';
+import { getWeeklyGames, getCachedGamesByWeek, getCurrentNFLWeek } from './services/gameCache';
 import { getCurrentWeekString, isGameLocked } from './utils/getCurrentWeek';
 import { calculateSeasonStandings } from './utils/leaderboard';
 import { copyPicksToClipboard } from './utils/exportHelpers';
@@ -86,6 +86,21 @@ export default function App() {
     initLeagues();
     fetchUsersList();
   }, []);
+
+  // Keep the week selector honest for whichever sport is active. CFB uses
+  // a fixed date table (season dates are known in advance); NFL asks ESPN
+  // directly for its current week rather than guessing at dates.
+  useEffect(() => {
+    async function syncWeekToSport() {
+      if (activeLeague?.sport === 'NFL') {
+        const nflWeek = await getCurrentNFLWeek();
+        if (nflWeek) setSelectedWeek(`Week ${nflWeek}`);
+      } else {
+        setSelectedWeek(getCurrentWeekString());
+      }
+    }
+    syncWeekToSport();
+  }, [activeLeague?.sport]);
 
   const fetchUsersList = async () => {
     const { data, error } = await supabase.from('users').select('id, name');
@@ -358,7 +373,7 @@ export default function App() {
                 onChange={(e) => setSelectedWeek(e.target.value)}
                 className="appearance-none bg-white/10 text-white text-sm font-medium rounded-full pl-4 pr-9 py-2 border border-white/15 focus:outline-none focus:ring-2 focus:ring-white/40"
               >
-                {[...Array(18)].map((_, i) => <option key={i} value={`Week ${i + 1}`} className="text-ink">Week {i + 1}</option>)}
+                {[...Array(19)].map((_, i) => <option key={i} value={`Week ${i}`} className="text-ink">Week {i}</option>)}
               </select>
               <Chevron />
             </div>
