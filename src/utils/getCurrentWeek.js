@@ -16,12 +16,11 @@ const WEEK_SCHEDULE = [
   { week: 14, start: new Date('2026-12-02'), end: new Date('2026-12-09') }
 ];
 
+// CFB-specific (includes Week 0 for the season-opening weekend).
 export function getCurrentWeekString() {
   const now = new Date();
   const current = WEEK_SCHEDULE.find((w) => now >= w.start && now < w.end);
   if (current) return `Week ${current.week}`;
-  // Outside the whole season (before week 1 kicks off, or after week 14
-  // ends) -- clamp to the nearest real week instead of a hardcoded guess.
   if (now < WEEK_SCHEDULE[0].start) return `Week ${WEEK_SCHEDULE[0].week}`;
   return `Week ${WEEK_SCHEDULE[WEEK_SCHEDULE.length - 1].week}`;
 }
