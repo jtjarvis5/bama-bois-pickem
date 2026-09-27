@@ -1,8 +1,7 @@
+import { supabase } from '../supabaseClient';
+
 const CFBD_API_KEY = import.meta.env.VITE_CFBD_API_KEY;
 const BASE_URL = 'https://api.collegefootballdata.com';
-
-// In-memory cache to prevent spamming APIs when switching weeks or tabs
-const localCache = {}; 
 
 // ==========================================
 // COLLEGE FOOTBALL FETCHING (CFBD API)
@@ -37,14 +36,20 @@ function gameImportance(game, rankMap) {
 
 async function fetchCFBGames(year, week) {
   if (!CFBD_API_KEY) {
-    throw new Error('VITE_CFBD_API_KEY is missing at runtime.');
+    throw new Error(
+      'VITE_CFBD_API_KEY is missing at runtime. In Vercel: Project Settings → ' +
+      'Environment Variables → make sure it is set for "Production", then trigger ' +
+      'a new deploy -- just saving the env var does not rebuild the app.'
+    );
   }
 
   const gamesRes = await fetch(`${BASE_URL}/games?year=${year}&week=${week}&seasonType=regular`, {
     headers: { Authorization: `Bearer ${CFBD_API_KEY}` }
   });
-
-  if (!gamesRes.ok) throw new Error(`CFBD /games request failed with status ${gamesRes.status}.`);
+  if (!gamesRes.ok) {
+    const bodyText = await gamesRes.text().catch(() => '');
+    throw new Error(`CFBD /games request failed with status ${gamesRes.status}. ${bodyText.slice(0, 200)}`);
+  }
   const gamesData = await gamesRes.json();
 
   const linesRes = await fetch(`${BASE_URL}/lines?year=${year}&week=${week}&seasonType=regular`, {
@@ -108,47 +113,40 @@ async function fetchCFBGames(year, week) {
   const otherGames = formattedGames.filter(g => !g.isBama);
   const rankedOthers = [...otherGames].sort((a, b) => gameImportance(b, rankMap) - gameImportance(a, rankMap));
   const topGames = rankedOthers.slice(0, 9);
-  
+
   return bamaGame ? [bamaGame, ...topGames] : rankedOthers.slice(0, 10);
 }
 
 // ==========================================
-// NFL FETCHING (ESPN PUBLIC API)
+// NFL FETCHING (ESPN PUBLIC API -- no key, no quota)
 // ==========================================
 
 async function fetchNFLGames(year, week) {
-  // ESPN API: seasontype=2 is Regular Season
   const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&week=${week}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`ESPN API request failed: ${res.status}`);
   const data = await res.json();
-  
+
   return data.events.map(event => {
     const competition = event.competitions[0];
     const homeTeamData = competition.competitors.find(c => c.homeAway === 'home');
     const awayTeamData = competition.competitors.find(c => c.homeAway === 'away');
-    
+
     const odds = competition.odds ? competition.odds[0] : null;
     let homeSpread = 0;
-    
-    // Parse ESPN's odds format (e.g., "KC -3.5")
+
     if (odds && odds.details && odds.details.toUpperCase() !== 'EVEN') {
-       const parts = odds.details.split(' ');
-       if (parts.length >= 2) {
-         const favAbbr = parts[0];
-         const spreadValue = parseFloat(parts[1]); 
-         
-         if (homeTeamData.team.abbreviation === favAbbr) {
-            homeSpread = spreadValue; // Home team is favored
-         } else {
-            homeSpread = -spreadValue; // Away team is favored
-         }
-       }
+      const parts = odds.details.split(' ');
+      if (parts.length >= 2) {
+        const favAbbr = parts[0];
+        const spreadValue = parseFloat(parts[1]);
+        homeSpread = homeTeamData.team.abbreviation === favAbbr ? spreadValue : -spreadValue;
+      }
     }
 
     const awaySpread = homeSpread !== 0 ? -homeSpread : 0;
     const overUnder = odds && odds.overUnder ? parseFloat(odds.overUnder) : null;
-    
+
     const isCompleted = event.status.type.completed;
     const homeScore = isCompleted ? parseInt(homeTeamData.score, 10) : null;
     const awayScore = isCompleted ? parseInt(awayTeamData.score, 10) : null;
@@ -172,7 +170,7 @@ async function fetchNFLGames(year, week) {
 
     return {
       id: parseInt(event.id, 10),
-      isBama: false, 
+      isBama: false,
       homeTeam: homeTeamData.team.displayName,
       homeAbbr: homeTeamData.team.abbreviation,
       homeSpread,
@@ -191,51 +189,106 @@ async function fetchNFLGames(year, week) {
   });
 }
 
+async function fetchWeeklyGames(year, week, sport = 'CFB') {
+  return sport === 'NFL' ? fetchNFLGames(year, week) : fetchCFBGames(year, week);
+}
+
+/**
+ * Asks ESPN what week it currently considers "current" (its scoreboard
+ * endpoint defaults to this when no ?week= is given). Deliberately not a
+ * hardcoded date table -- NFL schedules shift by year and there's no
+ * reliable way to hand-maintain that, so we just ask the source of truth.
+ */
+export async function getCurrentNFLWeek() {
+  try {
+    const res = await fetch('https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard');
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.week?.number ?? null;
+  } catch (err) {
+    console.error('Failed to detect current NFL week:', err);
+    return null;
+  }
+}
+
 // ==========================================
-// EXPORTED WRAPPER FUNCTIONS
+// SHARED SUPABASE CACHE (this is what actually protects your CFBD quota --
+// ESPN's NFL endpoint is free/unlimited so NFL doesn't strictly need it,
+// but caching it too costs nothing and keeps things consistent)
 // ==========================================
 
-export async function fetchWeeklyGames(year, week, sport = 'CFB') {
-  console.log(`Fetching live data for ${sport}: Year ${year}, Week ${week}`);
-  if (sport === 'NFL') {
-    return fetchNFLGames(year, week);
-  }
-  return fetchCFBGames(year, week);
+const LIVE_TTL_MS = 30 * 60 * 1000;      // 30 min once a game is underway but not final
+const IDLE_TTL_MS = 3 * 60 * 60 * 1000;  // 3 hours otherwise
+
+function pickTtl(cachedGames) {
+  const now = Date.now();
+  const anyInProgress = cachedGames.some(
+    (g) => g.status !== 'FINAL' && new Date(g.startDate).getTime() <= now
+  );
+  return anyInProgress ? LIVE_TTL_MS : IDLE_TTL_MS;
 }
 
 export async function getWeeklyGames(year, week, sport = 'CFB') {
   const cacheKey = `${sport}-${year}-${week}`;
-  if (localCache[cacheKey]) {
-    return localCache[cacheKey];
-  }
-  
-  const games = await fetchWeeklyGames(year, week, sport);
-  localCache[cacheKey] = games;
-  return games;
-}
 
-export async function getCachedGamesByWeek(year, sport = 'CFB') {
-  const result = {};
-  const currentWeekToFetch = 10; // Fetches up to week 10 in parallel to hydrate season standings rapidly
-  
-  const fetches = [];
-  for (let w = 1; w <= currentWeekToFetch; w++) {
-    const cacheKey = `${sport}-${year}-${w}`;
-    if (localCache[cacheKey]) {
-      result[w] = localCache[cacheKey];
-    } else {
-      fetches.push(
-        fetchWeeklyGames(year, w, sport).then(games => {
-          localCache[cacheKey] = games;
-          result[w] = games;
-        }).catch(err => console.error(`Failed caching ${sport} Week ${w}:`, err))
-      );
+  const { data: cached, error: readError } = await supabase
+    .from('games_cache')
+    .select('games, fetched_at')
+    .eq('cache_key', cacheKey)
+    .maybeSingle();
+
+  if (readError) {
+    console.error('games_cache read failed, falling back to a live call:', readError);
+  }
+
+  if (cached?.games?.length) {
+    const allFinal = cached.games.every((g) => g.status === 'FINAL');
+    const age = Date.now() - new Date(cached.fetched_at).getTime();
+    const ttl = pickTtl(cached.games);
+    if (allFinal || age < ttl) {
+      return cached.games;
     }
   }
 
-  if (fetches.length > 0) {
-    await Promise.all(fetches);
+  // Cache missing or stale -- this is the only branch that spends CFBD
+  // quota (for CFB) or hits ESPN (for NFL, which has no quota concern).
+  const freshGames = await fetchWeeklyGames(year, week, sport);
+
+  const { error: writeError } = await supabase
+    .from('games_cache')
+    .upsert(
+      { cache_key: cacheKey, year, week, sport, games: freshGames, fetched_at: new Date().toISOString() },
+      { onConflict: 'cache_key' }
+    );
+
+  if (writeError) {
+    console.error('Failed to write games_cache (check the table/policy exist):', writeError);
   }
 
-  return result;
+  return freshGames;
+}
+
+/**
+ * Reads every already-cached week for a season+sport in one query -- no
+ * live fetches at all. A week nobody has ever opened has no cache row and
+ * is simply skipped, which is safe: picks can't exist for a week whose
+ * games were never loaded in the first place.
+ */
+export async function getCachedGamesByWeek(year, sport = 'CFB') {
+  const { data, error } = await supabase
+    .from('games_cache')
+    .select('week, games')
+    .eq('year', year)
+    .eq('sport', sport);
+
+  if (error) {
+    console.error('Failed to load season game cache for standings:', error);
+    return {};
+  }
+
+  const byWeek = {};
+  (data || []).forEach((row) => {
+    byWeek[row.week] = row.games;
+  });
+  return byWeek;
 }
