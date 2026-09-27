@@ -88,8 +88,10 @@ export default function PickMatrix({ games = [], allLeaguePicks = [], currentUse
             return (
               <tr key={game.id} className="border-b border-line last:border-0 hover:bg-paper/30 transition-colors">
                 <td className="p-3">
-                  <div className="font-semibold text-ink">
-                    {game.awayTeam} @ {game.homeTeam}
+                  <div className="font-semibold text-ink flex items-center gap-1.5">
+                    {game.awayLogo && <img src={game.awayLogo} alt="" className="w-4 h-4 object-contain shrink-0" />}
+                    <span>{game.awayTeam} @ {game.homeTeam}</span>
+                    {game.homeLogo && <img src={game.homeLogo} alt="" className="w-4 h-4 object-contain shrink-0" />}
                   </div>
                   <div className="text-[10px] text-muted font-medium mt-0.5">{game.time}</div>
                 </td>
