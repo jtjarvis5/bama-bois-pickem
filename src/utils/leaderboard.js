@@ -1,3 +1,5 @@
+import { lockBonusValue, hasSpreadLock, hasTotalLock } from './scoring';
+
 export function calculateSeasonStandings(seasonPicks = [], gamesByWeek = {}, membersList = []) {
   const memberStats = {};
 
@@ -27,6 +29,7 @@ export function calculateSeasonStandings(seasonPicks = [], gamesByWeek = {}, mem
     if (!stats || !picks) return;
 
     const weekGames = gamesByWeek[week] || [];
+    const bonusValue = lockBonusValue(weekGames);
 
     Object.keys(picks).forEach((gameId) => {
       const userPick = picks[gameId];
@@ -45,9 +48,9 @@ export function calculateSeasonStandings(seasonPicks = [], gamesByWeek = {}, mem
         if (spreadCovered > 0) {
           stats.wins += 1;
           stats.totalPoints += 1;
-          if (userPick.isLock) {
+          if (hasSpreadLock(userPick)) {
             stats.lockBonuses += 1;
-            stats.totalPoints += 1; // Extra point for lock win
+            stats.totalPoints += bonusValue;
           }
         } else if (spreadCovered < 0) {
           stats.losses += 1;
@@ -65,6 +68,10 @@ export function calculateSeasonStandings(seasonPicks = [], gamesByWeek = {}, mem
         ) {
           stats.wins += 1;
           stats.totalPoints += 1;
+          if (hasTotalLock(userPick)) {
+            stats.lockBonuses += 1;
+            stats.totalPoints += bonusValue;
+          }
         } else if (totalPoints === game.overUnder) {
           stats.pushes += 1;
         } else {
