@@ -7,31 +7,92 @@ const BASE_URL = 'https://api.collegefootballdata.com';
 // COLLEGE FOOTBALL FETCHING (CFBD API)
 // ==========================================
 
+/**
+ * AP Top 25 for a week, falling back to the most recent poll released at or
+ * before that week. One call fetches every poll of the season (no week
+ * param), so looking "back" costs nothing extra -- we just pick the right
+ * entry. If the requested week is earlier than any poll (e.g. Week 0), we
+ * use the earliest one (the preseason poll).
+ */
 async function fetchRankings(year, week) {
   try {
-    const res = await fetch(`${BASE_URL}/rankings?year=${year}&week=${week}&seasonType=regular`, {
-      headers: { Authorization: `Bearer ${CFBD_API_KEY}` }
-    });
-    if (!res.ok) return {};
+    const headers = { Authorization: `Bearer ${CFBD_API_KEY}` };
+    let res = await fetch(`${BASE_URL}/rankings?year=${year}&seasonType=regular`, { headers });
+    if (!res.ok) {
+      // Defensive: if the no-week form is ever rejected, retry the old way.
+      res = await fetch(`${BASE_URL}/rankings?year=${year}&week=${week}&seasonType=regular`, { headers });
+      if (!res.ok) return {};
+    }
     const data = await res.json();
-    const weekEntry = Array.isArray(data) ? (data.find(d => d.week === week) || data[0]) : null;
-    const apPoll = weekEntry?.polls?.find(p => p.poll === 'AP Top 25');
+    if (!Array.isArray(data)) return {};
+
+    const withAP = data
+      .map((entry) => ({
+        week: entry.week,
+        poll: entry.polls?.find((p) => p.poll === 'AP Top 25'),
+      }))
+      .filter((e) => e.poll?.ranks?.length);
+    if (withAP.length === 0) return {};
+
+    const atOrBefore = withAP.filter((e) => e.week <= week).sort((a, b) => b.week - a.week);
+    const chosen = atOrBefore[0] || withAP.sort((a, b) => a.week - b.week)[0];
+
     const rankMap = {};
-    apPoll?.ranks?.forEach(r => { rankMap[r.school] = r.rank; });
+    chosen.poll.ranks.forEach((r) => { rankMap[r.school] = r.rank; });
     return rankMap;
   } catch (err) {
-    console.error('Rankings fetch failed, falling back to unranked ordering:', err);
+    console.error('Rankings fetch failed, falling back to Elo/unranked ordering:', err);
     return {};
   }
 }
 
-function gameImportance(game, rankMap) {
-  const homeRank = rankMap[game.homeTeam];
-  const awayRank = rankMap[game.awayTeam];
-  let score = 0;
-  if (homeRank) score += 26 - homeRank;
-  if (awayRank) score += 26 - awayRank;
-  return score;
+// One call returns every team's record and classification (fbs/fcs/...).
+async function fetchRecords(year) {
+  try {
+    const res = await fetch(`${BASE_URL}/records?year=${year}`, {
+      headers: { Authorization: `Bearer ${CFBD_API_KEY}` }
+    });
+    if (!res.ok) return {};
+    const data = await res.json();
+    const map = {};
+    (Array.isArray(data) ? data : []).forEach((r) => {
+      const t = r.total || {};
+      const wins = t.wins ?? 0;
+      const losses = t.losses ?? 0;
+      const ties = t.ties ?? 0;
+      map[r.team] = {
+        record: `${wins}-${losses}${ties ? `-${ties}` : ''}`,
+        classification: r.classification || null,
+      };
+    });
+    return map;
+  } catch (err) {
+    console.error('Records fetch failed (records just won\'t display):', err);
+    return {};
+  }
+}
+
+// Unknown classification counts as FBS, so a missing field can never
+// silently empty the slate.
+const isFBS = (classification) => classification == null || classification === 'fbs';
+
+/**
+ * How worth-picking a matchup is. Team strength is the better of AP rank
+ * and pregame Elo (so unranked-but-good teams still count when there's no
+ * poll), both-ranked gets a bonus, and big spreads shrink the score --
+ * a top-5 team beating up on a weak opponent isn't a good pick'em game.
+ */
+function matchupScore(g, rankMap, spread) {
+  const rankPts = (team) => (rankMap[team] ? 26 - rankMap[team] : 0);
+  const eloPts = (elo) => (elo ? Math.min(25, Math.max(0, (elo - 1500) / 20)) : 0);
+  const homeStrength = Math.max(rankPts(g.homeTeam), eloPts(g.homePregameElo));
+  const awayStrength = Math.max(rankPts(g.awayTeam), eloPts(g.awayPregameElo));
+
+  const bothRankedBonus = rankMap[g.homeTeam] && rankMap[g.awayTeam] ? 10 : 0;
+  const spreadSize = spread == null ? 10 : Math.abs(spread);
+  const competitiveness = 1 / (1 + Math.max(0, spreadSize - 3) / 10);
+
+  return (homeStrength + awayStrength) * competitiveness + bothRankedBonus;
 }
 
 // Team logos change essentially never mid-season, so this is cached far
@@ -97,6 +158,7 @@ async function fetchCFBGames(year, week) {
   });
   const linesData = linesRes.ok ? await linesRes.json() : [];
   const rankMap = await fetchRankings(year, week);
+  const recordsMap = await fetchRecords(year);
   const logoMap = await getCFBLogoMap();
 
   const linesMap = {};
@@ -107,7 +169,7 @@ async function fetchCFBGames(year, week) {
     });
   }
 
-  const formattedGames = gamesData.map(g => {
+  const formattedEntries = gamesData.map(g => {
     const line = linesMap[g.id] || { spread: 0, overUnder: null };
     const isBama = g.homeTeam === 'Alabama' || g.awayTeam === 'Alabama';
     const homeSpread = line.spread ?? 0;
@@ -130,16 +192,24 @@ async function fetchCFBGames(year, week) {
       }
     }
 
-    return {
+    const hasLine = linesMap[g.id]?.spread != null;
+    const homeClass = g.homeClassification || recordsMap[g.homeTeam]?.classification || null;
+    const awayClass = g.awayClassification || recordsMap[g.awayTeam]?.classification || null;
+
+    const game = {
       id: g.id,
       isBama,
       homeTeam: g.homeTeam,
       homeAbbr: g.homeTeam.substring(0, 4).toUpperCase(),
       homeLogo: logoMap[g.homeTeam] || null,
+      homeRank: rankMap[g.homeTeam] || null,
+      homeRecord: recordsMap[g.homeTeam]?.record || null,
       homeSpread,
       awayTeam: g.awayTeam,
       awayAbbr: g.awayTeam.substring(0, 4).toUpperCase(),
       awayLogo: logoMap[g.awayTeam] || null,
+      awayRank: rankMap[g.awayTeam] || null,
+      awayRecord: recordsMap[g.awayTeam]?.record || null,
       awaySpread,
       overUnder,
       startDate: g.startDate,
@@ -150,11 +220,23 @@ async function fetchCFBGames(year, week) {
       winningSpreadTeam,
       winningTotal
     };
+
+    return {
+      game,
+      fbsVsFbs: isFBS(homeClass) && isFBS(awayClass),
+      score: matchupScore(g, rankMap, hasLine ? homeSpread : null),
+    };
   });
 
+  const formattedGames = formattedEntries.map((e) => e.game);
   const bamaGame = formattedGames.find(g => g.isBama);
-  const otherGames = formattedGames.filter(g => !g.isBama);
-  const rankedOthers = [...otherGames].sort((a, b) => gameImportance(b, rankMap) - gameImportance(a, rankMap));
+
+  // Never feature an FCS opponent (an FCS game can't be a "top game"), then
+  // take the highest-scoring matchups. Bama's game stays pinned regardless.
+  const rankedOthers = formattedEntries
+    .filter((e) => !e.game.isBama && e.fbsVsFbs)
+    .sort((a, b) => b.score - a.score)
+    .map((e) => e.game);
   const topGames = rankedOthers.slice(0, 9);
 
   // Importance decides which games make the cut; time decides the order
@@ -168,6 +250,13 @@ async function fetchCFBGames(year, week) {
 // ==========================================
 // NFL FETCHING (ESPN PUBLIC API -- no key, no quota)
 // ==========================================
+
+// ESPN lists several record types per competitor; we want the overall one.
+function overallRecord(competitor) {
+  const records = competitor?.records || [];
+  const overall = records.find((r) => r.type === 'total' || (r.name || '').toLowerCase() === 'overall');
+  return (overall || records[0])?.summary || null;
+}
 
 async function fetchNFLGames(year, week) {
   const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&week=${week}`;
@@ -224,10 +313,14 @@ async function fetchNFLGames(year, week) {
       homeTeam: homeTeamData.team.displayName,
       homeAbbr: homeTeamData.team.abbreviation,
       homeLogo: homeTeamData.team.logo || null,
+      homeRank: null,
+      homeRecord: overallRecord(homeTeamData),
       homeSpread,
       awayTeam: awayTeamData.team.displayName,
       awayAbbr: awayTeamData.team.abbreviation,
       awayLogo: awayTeamData.team.logo || null,
+      awayRank: null,
+      awayRecord: overallRecord(awayTeamData),
       awaySpread,
       overUnder,
       startDate: event.date,
@@ -320,6 +413,13 @@ function mergeGameOdds(freshGame, previousGamesById) {
   }
 
   const merged = { ...freshGame, homeSpread, awaySpread, overUnder };
+
+  // Records freeze with the line: once inside the window, keep the pregame
+  // record instead of one that already includes this game's result.
+  if (isFrozen && (prev.homeRecord || prev.awayRecord)) {
+    merged.homeRecord = prev.homeRecord ?? merged.homeRecord;
+    merged.awayRecord = prev.awayRecord ?? merged.awayRecord;
+  }
 
   if (merged.status === 'FINAL' && merged.homeScore != null && merged.awayScore != null) {
     const homeMargin = merged.homeScore - merged.awayScore;
