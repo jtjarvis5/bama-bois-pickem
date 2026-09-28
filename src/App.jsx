@@ -9,6 +9,7 @@ import AuthModal from './components/AuthModal';
 import CreateLeagueModal from './components/CreateLeagueModal';
 import JoinLeagueModal from './components/JoinLeagueModal';
 import StatsPage from './components/StatsPage';
+import { hasSpreadLock, hasTotalLock, lockBonusValue } from './utils/scoring';
 
 // "#7 LSU (2-0)" -- rank and record each appear only when we have them.
 function teamLabel(abbr, rank, record) {
@@ -252,7 +253,7 @@ export default function App() {
 
   const saveToSupabase = async (activeUser, newPicks) => {
     setIsSaving(true);
-    const lockedId = Object.keys(newPicks).find((id) => newPicks[id]?.isLock);
+    const lockedId = Object.keys(newPicks).find((id) => hasSpreadLock(newPicks[id]));
     
     const payload = {
       league_id: selectedLeagueId,
@@ -284,25 +285,33 @@ export default function App() {
     await saveToSupabase(currentUser.name, newPicks);
   };
 
-  const handleLockToggle = async (targetGameId) => {
+  // Two independent locks per week: one on a spread pick, one on a total
+  // pick. Setting a new one only clears the same lock type on other games
+  // -- setting a total lock never touches an existing spread lock.
+  const toggleLock = async (targetGameId, lockField, hasLockFn) => {
     if (!currentUser) return setShowAuthModal(true);
     if (currentUser.name !== selectedUser) setSelectedUser(currentUser.name);
 
-    const isCurrentlyLocked = picks[targetGameId]?.isLock || false;
+    const isCurrentlyLocked = hasLockFn(picks[targetGameId]);
     const updatedPicks = {};
     Object.keys(picks).forEach((gameId) => {
-      updatedPicks[gameId] = { ...picks[gameId], isLock: false };
+      updatedPicks[gameId] = { ...picks[gameId], [lockField]: false };
     });
     if (!isCurrentlyLocked) {
-      updatedPicks[targetGameId] = { ...updatedPicks[targetGameId], isLock: true };
+      updatedPicks[targetGameId] = { ...updatedPicks[targetGameId], [lockField]: true };
     }
     setPicks(updatedPicks);
     await saveToSupabase(currentUser.name, updatedPicks);
   };
+  const toggleSpreadLock = (gameId) => toggleLock(gameId, 'spreadLock', hasSpreadLock);
+  const toggleTotalLock = (gameId) => toggleLock(gameId, 'totalLock', hasTotalLock);
 
   const standings = calculateSeasonStandings(seasonPicks, gamesByWeek, activeStandingsMembers);
-  const lockedGameId = Object.keys(picks).find((id) => picks[id]?.isLock);
-  const lockedGame = games.find((g) => g.id.toString() === lockedGameId?.toString());
+  const spreadLockedId = Object.keys(picks).find((id) => hasSpreadLock(picks[id]));
+  const spreadLockedGame = games.find((g) => g.id.toString() === spreadLockedId?.toString());
+  const totalLockedId = Object.keys(picks).find((id) => hasTotalLock(picks[id]));
+  const totalLockedGame = games.find((g) => g.id.toString() === totalLockedId?.toString());
+  const currentBonusValue = lockBonusValue(games);
 
   return (
     <div className="min-h-screen bg-paper">
@@ -435,11 +444,19 @@ export default function App() {
         {apiError && <div className="mb-4 text-xs text-red-600 bg-red-50 p-3 rounded-lg border border-red-200">{apiError}</div>}
 
         <div className="mb-4 rounded-card bg-crimson text-white px-4 py-3.5 flex items-center justify-between gap-3 shadow-sm">
-          <div className="text-sm min-w-0">
-            <span className="text-white/70">Lock of the week — </span>
-            <span className="font-medium">
-              {lockedGame ? `${lockedGame.awayTeam} @ ${lockedGame.homeTeam}` : 'Not set yet'}
-            </span>
+          <div className="text-sm min-w-0 space-y-0.5">
+            <div>
+              <span className="text-white/70">Spread lock ({currentBonusValue > 1 ? `+${currentBonusValue}` : '+1'}) — </span>
+              <span className="font-medium">
+                {spreadLockedGame ? `${spreadLockedGame.awayTeam} @ ${spreadLockedGame.homeTeam}` : 'Not set yet'}
+              </span>
+            </div>
+            <div>
+              <span className="text-white/70">Total lock ({currentBonusValue > 1 ? `+${currentBonusValue}` : '+1'}) — </span>
+              <span className="font-medium">
+                {totalLockedGame ? `${totalLockedGame.awayTeam} @ ${totalLockedGame.homeTeam}` : 'Not set yet'}
+              </span>
+            </div>
           </div>
           <button
             onClick={() => copyPicksToClipboard(selectedUser, selectedWeek, picks, games)}
@@ -503,7 +520,7 @@ export default function App() {
                 )}
 
                 <div className="text-xs font-semibold text-muted mb-1.5 uppercase tracking-wide">Spread</div>
-                <div className="flex items-center gap-2 mb-4">
+                <div className="flex items-center gap-2 mb-2">
                   <button
                     disabled={lockedByKickoff}
                     onClick={() => handlePick(game.id, 'spread', 'away')}
@@ -520,11 +537,20 @@ export default function App() {
                     {game.homeTeam} {game.homeSpread > 0 ? `+${game.homeSpread}` : game.homeSpread}
                   </button>
                 </div>
+                <button
+                  disabled={lockedByKickoff || !picks[game.id]?.spread}
+                  onClick={() => toggleSpreadLock(game.id)}
+                  className={`mb-4 text-xs font-semibold px-3 py-1.5 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                    hasSpreadLock(picks[game.id]) ? 'bg-ink text-white' : 'border border-line text-muted hover:border-ink/30'
+                  }`}
+                >
+                  {hasSpreadLock(picks[game.id]) ? `Spread locked ✓ (+${currentBonusValue})` : `Lock this spread (+${currentBonusValue})`}
+                </button>
 
                 {game.overUnder != null ? (
                   <>
                     <div className="text-xs font-semibold text-muted mb-1.5 uppercase tracking-wide">Total</div>
-                    <div className="flex items-center gap-2 mb-4">
+                    <div className="flex items-center gap-2 mb-2">
                       <button
                         disabled={lockedByKickoff}
                         onClick={() => handlePick(game.id, 'total', 'over')}
@@ -540,22 +566,19 @@ export default function App() {
                         Under {game.overUnder}
                       </button>
                     </div>
+                    <button
+                      disabled={lockedByKickoff || !picks[game.id]?.total}
+                      onClick={() => toggleTotalLock(game.id)}
+                      className={`mb-1 text-xs font-semibold px-3 py-1.5 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                        hasTotalLock(picks[game.id]) ? 'bg-ink text-white' : 'border border-line text-muted hover:border-ink/30'
+                      }`}
+                    >
+                      {hasTotalLock(picks[game.id]) ? `Total locked ✓ (+${currentBonusValue})` : `Lock this total (+${currentBonusValue})`}
+                    </button>
                   </>
                 ) : (
-                  <div className="text-xs text-muted italic mb-4">No total line available for this game.</div>
+                  <div className="text-xs text-muted italic mb-1">No total line available for this game.</div>
                 )}
-
-                <button
-                  disabled={lockedByKickoff || !picks[game.id]?.spread}
-                  onClick={() => handleLockToggle(game.id)}
-                  className={`w-full py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                    picks[game.id]?.isLock 
-                      ? 'bg-ink text-white shadow-md' 
-                      : 'bg-white border border-line text-muted hover:border-ink/30'
-                  }`}
-                >
-                  {picks[game.id]?.isLock ? 'Lock of the week ✓' : 'Set as lock'}
-                </button>
               </div>
             );
           })}
