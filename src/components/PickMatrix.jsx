@@ -1,5 +1,6 @@
 import { isGameLocked } from '../utils/getCurrentWeek';
 import { rankWeekPerformance } from '../utils/analytics';
+import { hasSpreadLock, hasTotalLock } from '../utils/scoring';
 
 // Helper to evaluate if a pick won, lost, or pushed in the matrix view
 function getPickStatus(game, pick, type) {
@@ -146,15 +147,26 @@ export default function PickMatrix({ games = [], allLeaguePicks = [], currentUse
                             {gamePick.total} {game.overUnder}
                           </div>
                         )}
-                        {gamePick.isLock && (
-                          <div className="mt-1">
-                            <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
-                              spreadStatus === 'win' ? 'bg-emerald-100 text-emerald-700' :
-                              spreadStatus === 'loss' ? 'bg-red-100 text-red-700 opacity-60' :
-                              'bg-crimson/10 text-crimson'
-                            }`}>
-                              LOCK
-                            </span>
+                        {(hasSpreadLock(gamePick) || hasTotalLock(gamePick)) && (
+                          <div className="mt-1 flex flex-col items-center gap-0.5">
+                            {hasSpreadLock(gamePick) && (
+                              <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                                spreadStatus === 'win' ? 'bg-emerald-100 text-emerald-700' :
+                                spreadStatus === 'loss' ? 'bg-red-100 text-red-700 opacity-60' :
+                                'bg-crimson/10 text-crimson'
+                              }`}>
+                                Spread lock
+                              </span>
+                            )}
+                            {hasTotalLock(gamePick) && (
+                              <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                                totalStatus === 'win' ? 'bg-emerald-100 text-emerald-700' :
+                                totalStatus === 'loss' ? 'bg-red-100 text-red-700 opacity-60' :
+                                'bg-crimson/10 text-crimson'
+                              }`}>
+                                Total lock
+                              </span>
+                            )}
                           </div>
                         )}
                       </div>
