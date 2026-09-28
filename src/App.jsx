@@ -466,9 +466,16 @@ export default function App() {
                   </span>
                 </div>
 
-                {isFinal && (
+                <div className="flex items-center justify-center gap-2 mb-2.5">
+                  {game.awayLogo && <img src={game.awayLogo} alt="" className="w-5 h-5 object-contain" />}
+                  <span className="text-xs font-medium text-muted">{game.awayAbbr} @ {game.homeAbbr}</span>
+                  {game.homeLogo && <img src={game.homeLogo} alt="" className="w-5 h-5 object-contain" />}
+                </div>
+
+                {(game.homeScore != null && game.awayScore != null) && (
                   <div className="text-sm font-display font-semibold text-ink mb-3 bg-paper/50 py-2 px-3 rounded-lg text-center">
                     {game.awayTeam} <span className="text-crimson mx-1">{game.awayScore}</span> - <span className="text-crimson mx-1">{game.homeScore}</span> {game.homeTeam}
+                    {!isFinal && <span className="ml-2 text-[10px] font-sans font-bold text-emerald-600 align-middle">LIVE</span>}
                   </div>
                 )}
 
