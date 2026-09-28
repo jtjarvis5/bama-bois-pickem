@@ -1,8 +1,9 @@
-// Deliberately self-contained: the same win/loss/push formula that
-// leaderboard.js, PickMatrix.jsx, and App.jsx each already have their own
-// copy of. Duplicating it here (rather than refactoring those three to
-// share one implementation) means building this page carries zero risk of
-// changing how points are actually calculated anywhere that already works.
+import { lockBonusValue, hasSpreadLock, hasTotalLock } from './scoring';
+
+// The win/loss/push formula itself is still a separate copy from
+// leaderboard.js/PickMatrix.jsx/App.jsx (deliberate -- see the note in
+// StatsPage.jsx history). The lock-bonus rule, which actually changes
+// between those files now, is shared via scoring.js instead.
 
 function gradeSpread(pick, game) {
   if (!pick?.spread || !game || game.status !== 'FINAL') return null;
@@ -36,17 +37,20 @@ function findGame(weekGames, gameId) {
 function pointsForWeek(weekPicksRows, weekGames, memberName) {
   const row = weekPicksRows.find((r) => r.user_name === memberName);
   if (!row || !row.picks) return 0;
+  const bonusValue = lockBonusValue(weekGames);
   let points = 0;
   Object.keys(row.picks).forEach((gameId) => {
     const pick = row.picks[gameId];
     const game = findGame(weekGames, gameId);
     if (!game) return;
-    const spreadResult = gradeSpread(pick, game);
-    if (spreadResult === 'win') {
+    if (gradeSpread(pick, game) === 'win') {
       points += 1;
-      if (pick.isLock) points += 1;
+      if (hasSpreadLock(pick)) points += bonusValue;
     }
-    if (gradeTotal(pick, game) === 'win') points += 1;
+    if (gradeTotal(pick, game) === 'win') {
+      points += 1;
+      if (hasTotalLock(pick)) points += bonusValue;
+    }
   });
   return points;
 }
