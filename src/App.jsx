@@ -8,6 +8,12 @@ import PickMatrix from './components/PickMatrix';
 import AuthModal from './components/AuthModal';
 import CreateLeagueModal from './components/CreateLeagueModal';
 import JoinLeagueModal from './components/JoinLeagueModal';
+import StatsPage from './components/StatsPage';
+
+// "#7 LSU (2-0)" -- rank and record each appear only when we have them.
+function teamLabel(abbr, rank, record) {
+  return `${rank ? `#${rank} ` : ''}${abbr}${record ? ` (${record})` : ''}`;
+}
 
 function Chevron() {
   return (
@@ -67,6 +73,7 @@ export default function App() {
   const [gamesByWeek, setGamesByWeek] = useState({});
   const [isSaving, setIsSaving] = useState(false);
   const [apiError, setApiError] = useState(null);
+  const [activeTab, setActiveTab] = useState('games');
 
   // Auth & Modal State
   const [currentUser, setCurrentUser] = useState(null);
@@ -382,6 +389,22 @@ export default function App() {
       </header>
 
       <main className="max-w-4xl mx-auto px-5 py-6">
+        <div className="flex gap-2 mb-5">
+          {[['games', 'Games'], ['stats', 'Stats']].map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key)}
+              className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${
+                activeTab === key ? 'bg-crimson text-white' : 'bg-white border border-line text-muted hover:text-ink'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {activeTab === 'games' && (
+        <>
         {!currentUser ? (
           <div className="mb-4 rounded-card border border-amber-300 bg-amber-50 px-4 py-2.5 flex items-center justify-between gap-2">
             <span className="text-xs text-amber-900">
@@ -468,7 +491,7 @@ export default function App() {
 
                 <div className="flex items-center justify-center gap-2 mb-2.5">
                   {game.awayLogo && <img src={game.awayLogo} alt="" className="w-5 h-5 object-contain" />}
-                  <span className="text-xs font-medium text-muted">{game.awayAbbr} @ {game.homeAbbr}</span>
+                  <span className="text-xs font-medium text-muted">{teamLabel(game.awayAbbr, game.awayRank, game.awayRecord)} @ {teamLabel(game.homeAbbr, game.homeRank, game.homeRecord)}</span>
                   {game.homeLogo && <img src={game.homeLogo} alt="" className="w-5 h-5 object-contain" />}
                 </div>
 
@@ -575,6 +598,17 @@ export default function App() {
             </tbody>
           </table>
         </div>
+        </>
+        )}
+
+        {activeTab === 'stats' && (
+          <StatsPage
+            seasonPicks={seasonPicks}
+            gamesByWeek={gamesByWeek}
+            allMembers={activeStandingsMembers}
+            currentUser={selectedUser}
+          />
+        )}
       </main>
 
       {showAuthModal && (
