@@ -1,4 +1,5 @@
 import { isGameLocked } from '../utils/getCurrentWeek';
+import { rankWeekPerformance } from '../utils/analytics';
 
 // Helper to evaluate if a pick won, lost, or pushed in the matrix view
 function getPickStatus(game, pick, type) {
@@ -56,6 +57,15 @@ export default function PickMatrix({ games = [], allLeaguePicks = [], currentUse
       </div>
     );
   }
+
+  // Week totals use the same grading as Season Standings (lock bonus
+  // included) and only count FINAL games -- which have already kicked off,
+  // so this can never reveal a hidden pick.
+  const weekRanking = rankWeekPerformance(allLeaguePicks, games, allMembers);
+  const pointsByMember = {};
+  weekRanking.forEach((r) => { pointsByMember[r.userName] = r.points; });
+  const topPoints = weekRanking.length ? weekRanking[0].points : 0;
+  const weekIsOver = games.length > 0 && games.every((g) => g.status === 'FINAL');
 
   const getStatusClasses = (status) => {
     if (status === 'win') return 'text-emerald-600 font-bold';
@@ -155,6 +165,28 @@ export default function PickMatrix({ games = [], allLeaguePicks = [], currentUse
             );
           })}
         </tbody>
+        <tfoot>
+          <tr className="border-t-2 border-line bg-paper/50">
+            <td className="p-3 font-semibold text-ink">
+              Week total
+              <div className="text-[10px] font-medium text-muted mt-0.5">Finished games only</div>
+            </td>
+            {allMembers.map((m) => {
+              const pts = pointsByMember[m] ?? 0;
+              const isLeader = topPoints > 0 && pts === topPoints;
+              return (
+                <td key={m} className="p-3 text-center">
+                  <div className={`font-display text-lg font-bold ${isLeader ? 'text-crimson' : 'text-ink'}`}>{pts}</div>
+                  {isLeader && (
+                    <span className="inline-block mt-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded uppercase bg-crimson/10 text-crimson">
+                      {weekIsOver ? 'Won week' : 'Leading'}
+                    </span>
+                  )}
+                </td>
+              );
+            })}
+          </tr>
+        </tfoot>
       </table>
     </div>
   );
