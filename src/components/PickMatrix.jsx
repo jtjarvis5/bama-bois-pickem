@@ -140,6 +140,13 @@ export default function PickMatrix({ games = [], allLeaguePicks = [], currentUse
                         {gamePick.spread && (
                           <div className={getStatusClasses(spreadStatus)}>
                             {gamePick.spread === 'away' ? game.awayTeam : game.homeTeam}
+                            {' '}
+                            <span className="font-normal">
+                              ({(() => {
+                                const line = gamePick.spread === 'away' ? game.awaySpread : game.homeSpread;
+                                return line > 0 ? `+${line}` : line;
+                              })()})
+                            </span>
                           </div>
                         )}
                         {gamePick.total && (
