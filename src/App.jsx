@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
-import { supabase } from './supabaseClient';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import * as api from './services/api';
 import { getWeeklyGames, getCachedGamesByWeek, getCurrentNFLWeek } from './services/gameCache';
-import { getCurrentWeekString, isGameLocked } from './utils/getCurrentWeek';
+import { getCurrentWeekString, isGameLocked, SEASON_YEAR } from './utils/getCurrentWeek';
 import { calculateSeasonStandings } from './utils/leaderboard';
 import { copyPicksToClipboard } from './utils/exportHelpers';
 import PickMatrix from './components/PickMatrix';
@@ -10,6 +10,10 @@ import CreateLeagueModal from './components/CreateLeagueModal';
 import JoinLeagueModal from './components/JoinLeagueModal';
 import StatsPage from './components/StatsPage';
 import { hasSpreadLock, hasTotalLock, lockBonusValue } from './utils/scoring';
+
+// How often to re-read picks from the server while the tab is open.
+const POLL_MS = 15_000;
+const SEASON_POLL_MS = 60_000;
 
 // "#7 LSU (2-0)" -- rank and record each appear only when we have them.
 function teamLabel(abbr, rank, record) {
@@ -83,13 +87,31 @@ export default function App() {
   const [leagueToJoin, setLeagueToJoin] = useState(null);
   const [usersList, setUsersList] = useState([]);
 
+  // Pick saves are chained so they go out strictly in order. Each save writes
+  // the whole picks object, so two overlapping requests could land out of
+  // order and let an older object overwrite a newer one.
+  const saveChain = useRef(Promise.resolve());
+  const pendingSaves = useRef(0);
+  // Bumped to force a re-read of this week's picks from the server (e.g.
+  // after the server rejects a save and our local picks are out of date).
+  const [picksReloadTick, setPicksReloadTick] = useState(0);
+
   const weekNum = parseInt(selectedWeek.split(' ')[1], 10);
   const activeLeague = leagues.find(l => l.id === selectedLeagueId) || leagues[0];
 
+  // NFL has no Week 0; CFB runs 0-15 (CFBD files Army-Navy under Week 15).
+  const weekOptions = activeLeague?.sport === 'NFL'
+    ? Array.from({ length: 18 }, (_, i) => i + 1)
+    : Array.from({ length: 16 }, (_, i) => i);
+
   useEffect(() => {
     async function initLeagues() {
-      const { data } = await supabase.from('leagues').select('*').order('id');
-      if (data && data.length > 0) setLeagues(data);
+      try {
+        const data = await api.listLeagues();
+        if (data && data.length > 0) setLeagues(data);
+      } catch (err) {
+        console.error('Failed to load leagues:', err);
+      }
     }
     initLeagues();
     fetchUsersList();
@@ -110,125 +132,165 @@ export default function App() {
     syncWeekToSport();
   }, [activeLeague?.sport]);
 
+  const readSavedUser = () => {
+    try {
+      return JSON.parse(localStorage.getItem('currentUser') || 'null');
+    } catch {
+      return null;
+    }
+  };
+
   const fetchUsersList = async () => {
-    const { data, error } = await supabase.from('users').select('id, name');
-    if (!error && data && data.length > 0) {
-      setUsersList(data);
-      
-      const savedUser = localStorage.getItem('currentUser');
-      if (savedUser) {
-        try {
-          const parsed = JSON.parse(savedUser);
-          const userExists = data.some(u => u.name === parsed.name);
-          if (userExists) {
-            setCurrentUser(parsed);
-            if (!selectedUser) setSelectedUser(parsed.name);
-          } else {
-            handleLogout();
-          }
-        } catch (err) {
-          console.error('Failed to parse saved user:', err);
-        }
-      } else if (!selectedUser) {
-        setSelectedUser(data[0].name); 
+    let data;
+    try {
+      data = await api.listUsers();
+    } catch (err) {
+      console.error('Failed to load users:', err);
+      return;
+    }
+    if (!data || data.length === 0) return;
+    setUsersList(data);
+
+    const saved = readSavedUser();
+    // A login saved by the old version has no session token; it can't make
+    // picks any more, so those users are asked to log in once more.
+    let stillValid = Boolean(saved?.token);
+    if (stillValid) {
+      try {
+        stillValid = Boolean(await api.whoami(saved.token));
+      } catch {
+        stillValid = true; // couldn't reach the server -- don't log anyone out over a blip
       }
+    }
+
+    if (stillValid) {
+      setCurrentUser(saved);
+      setSelectedUser((prev) => prev || saved.name);
+    } else {
+      if (saved) handleLogout();
+      setSelectedUser((prev) => prev || data[0].name);
     }
   };
 
   const handleLogout = () => {
+    const sessionToken = currentUser?.token ?? readSavedUser()?.token;
+    if (sessionToken) api.logout(sessionToken).catch(() => {});
     localStorage.removeItem('currentUser');
     setCurrentUser(null);
   };
 
   useEffect(() => {
+    let cancelled = false; // a slow response for a week/league we've left must not overwrite the current one
     async function loadGames() {
       try {
         setApiError(null);
-        const liveGames = await getWeeklyGames(2026, weekNum, activeLeague.sport);
+        const liveGames = await getWeeklyGames(SEASON_YEAR, weekNum, activeLeague.sport);
+        if (cancelled) return;
         if (liveGames && liveGames.length > 0) {
           setGames(liveGames);
         } else {
           setApiError(`API returned 0 games for Week ${weekNum}.`);
         }
       } catch (err) {
+        if (cancelled) return;
         console.error("Failed to load games:", err);
         setApiError(`API Exception: ${err.message}`);
       }
     }
     if (activeLeague) loadGames();
+    return () => { cancelled = true; };
   }, [weekNum, selectedLeagueId, activeLeague]);
 
+  // This week's picks. The server hides other members' picks for any game that
+  // hasn't kicked off, so what comes back is already safe to show. There is no
+  // live subscription any more (the browser can't read the table directly), so
+  // we re-read every POLL_MS while the tab is visible.
+  const token = currentUser?.token ?? null;
   useEffect(() => {
-    async function loadInitialPicks() {
-      const { data } = await supabase.from('user_picks')
-        .select('*')
-        .eq('week', weekNum)
-        .eq('league_id', selectedLeagueId);
-        
-      if (data) {
+    if (!selectedUser || !selectedLeagueId) return;
+    let cancelled = false;
+
+    async function load(isInitial) {
+      try {
+        const data = await api.getWeekPicks(token, selectedLeagueId, weekNum);
+        if (cancelled || !data) return;
         setAllLeaguePicks(data);
-        const currentUserData = data.find(p => p.user_name === selectedUser);
-        setPicks(currentUserData?.picks || {});
+        // When you're looking at your own picks, what's on screen is already
+        // ahead of the server, so only the first read of a week is applied.
+        const viewingSelf = Boolean(currentUser) && selectedUser === currentUser.name;
+        if (isInitial || !viewingSelf) {
+          setPicks(data.find((p) => p.user_name === selectedUser)?.picks || {});
+        }
+      } catch (err) {
+        console.error('Failed to load picks:', err);
       }
     }
-    if (selectedUser && selectedLeagueId) loadInitialPicks();
 
-    const picksChannel = supabase
-      .channel(`public:user_picks:league_${selectedLeagueId}_week_${weekNum}`)
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public', 
-        table: 'user_picks', 
-        filter: `league_id=eq.${selectedLeagueId}` 
-      }, (payload) => {
-        const updatedRow = payload.new;
-        if (updatedRow.week !== weekNum) return;
+    load(true);
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible' && pendingSaves.current === 0) load(false);
+    }, POLL_MS);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [weekNum, selectedUser, selectedLeagueId, token, picksReloadTick]);
 
-        setAllLeaguePicks((prev) => {
-          const idx = prev.findIndex(p => p.user_name === updatedRow.user_name);
-          if (idx !== -1) {
-            const copy = [...prev];
-            copy[idx] = updatedRow;
-            return copy;
-          }
-          return [...prev, updatedRow];
-        });
-        if (updatedRow.user_name === selectedUser) {
-          setPicks(updatedRow.picks);
-        }
-      })
-      .subscribe();
-
-    return () => supabase.removeChannel(picksChannel);
-  }, [weekNum, selectedUser, selectedLeagueId]);
-
+  // Whole-season picks for standings and stats.
   useEffect(() => {
+    if (!selectedLeagueId || !activeLeague) return;
+    let cancelled = false;
+
     async function loadSeasonStandingsData() {
-      // Fetch members specifically mapped to this league to keep standings clean
-      const [{ data: membersData }, { data: picksData }, cachedByWeek] = await Promise.all([
-        supabase.from('league_members').select('user_name').eq('league_id', selectedLeagueId),
-        supabase.from('user_picks').select('*').eq('league_id', selectedLeagueId),
-        getCachedGamesByWeek(2026, activeLeague.sport),
-      ]);
-      
-      if (picksData) setSeasonPicks(picksData);
-      setGamesByWeek(cachedByWeek);
+      try {
+        const [picksData, cachedByWeek] = await Promise.all([
+          api.getSeasonPicks(token, selectedLeagueId),
+          getCachedGamesByWeek(SEASON_YEAR, activeLeague.sport),
+        ]);
+        if (cancelled) return;
+        if (picksData) setSeasonPicks(picksData);
+        setGamesByWeek(cachedByWeek);
+      } catch (err) {
+        console.error('Failed to load season data:', err);
+      }
     }
-    if (selectedLeagueId) loadSeasonStandingsData();
-  }, [weekNum, selectedLeagueId, activeLeague]);
+
+    loadSeasonStandingsData();
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'visible') loadSeasonStandingsData();
+    }, SEASON_POLL_MS);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [weekNum, selectedLeagueId, activeLeague, token]);
 
   // Restrict Standings members to those who have joined this specific league
   const [leagueMembers, setLeagueMembers] = useState([]);
   useEffect(() => {
     async function fetchLeagueMembers() {
-      const { data } = await supabase.from('league_members').select('user_name').eq('league_id', selectedLeagueId);
-      if (data) setLeagueMembers(data.map(m => m.user_name));
+      try {
+        const names = await api.leagueMembers(selectedLeagueId);
+        if (names) setLeagueMembers(names);
+      } catch (err) {
+        console.error('Failed to load league members:', err);
+      }
     }
     if (selectedLeagueId) fetchLeagueMembers();
   }, [selectedLeagueId, allLeaguePicks]);
 
   const availableMembers = usersList.map((u) => u.name);
-  const activeStandingsMembers = leagueMembers.length > 0 ? leagueMembers : availableMembers;
+  // Everyone shown in Standings, Who Picked Who and Stats. Recorded members
+  // first, then anyone who has picks in this league but was never recorded as a
+  // member (the original league's members were never written down), so the
+  // three views always agree.
+  const activeStandingsMembers = useMemo(() => {
+    const base = leagueMembers.length > 0 ? leagueMembers : availableMembers;
+    const seen = new Set(base);
+    const extras = [];
+    [...seasonPicks, ...allLeaguePicks].forEach((p) => {
+      if (p.user_name && !seen.has(p.user_name)) {
+        seen.add(p.user_name);
+        extras.push(p.user_name);
+      }
+    });
+    return extras.length ? [...base, ...extras.sort()] : base;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leagueMembers, usersList, seasonPicks, allLeaguePicks]);
 
   const handleLeagueChange = async (newLeagueId) => {
     if (!currentUser) return setShowAuthModal(true);
@@ -236,44 +298,59 @@ export default function App() {
     const targetLeague = leagues.find(l => l.id === newLeagueId);
     if (!targetLeague) return;
 
-    // Check if the current user is a member of this league
-    const { data: membership } = await supabase
-      .from('league_members')
-      .select('*')
-      .eq('league_id', newLeagueId)
-      .eq('user_name', currentUser.name)
-      .single();
-
-    if (!membership) {
-      setLeagueToJoin(targetLeague);
-    } else {
-      setSelectedLeagueId(newLeagueId);
+    try {
+      const mine = await api.myLeagueIds(currentUser.token);
+      if ((mine || []).includes(newLeagueId)) {
+        setSelectedLeagueId(newLeagueId);
+      } else if (targetLeague.has_password) {
+        setLeagueToJoin(targetLeague); // needs the password
+      } else {
+        await api.joinLeague(currentUser.token, newLeagueId, null); // open league: just join
+        setSelectedLeagueId(newLeagueId);
+      }
+    } catch (err) {
+      handleServerError(err);
     }
   };
 
-  const saveToSupabase = async (activeUser, newPicks) => {
+  // One place to react to a server refusal: say why in plain words, and if the
+  // session has gone bad, send the person back to the login screen.
+  const handleServerError = (err) => {
+    console.error('Server error:', err);
+    alert(api.friendlyError(err));
+    if (api.errorCode(err) === 'not_logged_in') {
+      handleLogout();
+      setShowAuthModal(true);
+    }
+  };
+
+  const saveToSupabase = (activeUser, newPicks) => {
+    pendingSaves.current += 1;
     setIsSaving(true);
-    const lockedId = Object.keys(newPicks).find((id) => hasSpreadLock(newPicks[id]));
-    
-    const payload = {
-      league_id: selectedLeagueId,
-      user_name: activeUser,
-      week: weekNum,
-      picks: newPicks,
-      lock_game_id: lockedId ? parseInt(lockedId, 10) : 0,
-      tiebreaker: 0,
+    // Capture now, so a save queued behind others still goes to the league and
+    // week the person was looking at when they tapped.
+    const saveToken = currentUser.token;
+    const leagueId = selectedLeagueId;
+    const week = weekNum;
+
+    const run = async () => {
+      try {
+        await api.savePicks(saveToken, leagueId, week, newPicks);
+      } catch (err) {
+        handleServerError(err);
+        // Our on-screen picks now contradict the server's copy -- put back
+        // what the server actually has.
+        setPicksReloadTick((t) => t + 1);
+      }
     };
 
-    try {
-      const { error } = await supabase.from('user_picks').upsert(
-        payload, { onConflict: 'league_id,user_name,week' }
-      );
-      if (error) throw error;
-    } catch (err) {
-      console.error('Failed to save pick:', err);
-      alert(`Pick didn't save: ${err.message || 'unknown error'}`);
-    }
-    setIsSaving(false);
+    // run() never rejects, so the chain can't get stuck after a failed save.
+    const next = saveChain.current.then(run).finally(() => {
+      pendingSaves.current -= 1;
+      if (pendingSaves.current === 0) setIsSaving(false);
+    });
+    saveChain.current = next;
+    return next;
   };
 
   const handlePick = async (gameId, field, value) => {
@@ -293,6 +370,18 @@ export default function App() {
     if (currentUser.name !== selectedUser) setSelectedUser(currentUser.name);
 
     const isCurrentlyLocked = hasLockFn(picks[targetGameId]);
+
+    // Moving a lock away from a game that has already started would let you
+    // dodge a bad result, so it's not allowed (the server refuses it too).
+    const heldOnId = Object.keys(picks).find((id) => hasLockFn(picks[id]));
+    if (heldOnId && String(heldOnId) !== String(targetGameId)) {
+      const heldGame = games.find((g) => String(g.id) === String(heldOnId));
+      if (heldGame && isGameLocked(heldGame.startDate)) {
+        alert(`Your ${lockField === 'totalLock' ? 'total' : 'spread'} lock is on ${heldGame.awayTeam} @ ${heldGame.homeTeam}, which has already kicked off, so it can't be moved.`);
+        return;
+      }
+    }
+
     const updatedPicks = {};
     Object.keys(picks).forEach((gameId) => {
       updatedPicks[gameId] = { ...picks[gameId], [lockField]: false };
@@ -389,7 +478,7 @@ export default function App() {
                 onChange={(e) => setSelectedWeek(e.target.value)}
                 className="appearance-none bg-white/10 text-white text-sm font-medium rounded-full pl-4 pr-9 py-2 border border-white/15 focus:outline-none focus:ring-2 focus:ring-white/40"
               >
-                {[...Array(19)].map((_, i) => <option key={i} value={`Week ${i}`} className="text-ink">Week {i}</option>)}
+                {weekOptions.map((w) => <option key={w} value={`Week ${w}`} className="text-ink">Week {w}</option>)}
               </select>
               <Chevron />
             </div>
@@ -630,6 +719,7 @@ export default function App() {
             gamesByWeek={gamesByWeek}
             allMembers={activeStandingsMembers}
             currentUser={selectedUser}
+            viewer={currentUser?.name}
           />
         )}
       </main>
@@ -673,3 +763,4 @@ export default function App() {
     </div>
   );
 }
+
