@@ -34,3 +34,29 @@ export function hasSpreadLock(pick) {
 export function hasTotalLock(pick) {
   return Boolean(pick?.totalLock);
 }
+
+
+/**
+ * Grades one spread pick against a FINAL game: 'win' | 'loss' | 'push', or
+ * null when there is nothing to grade (no pick, game not final).
+ */
+export function gradeSpread(pick, game) {
+  if (!pick?.spread || !game || game.status !== 'FINAL') return null;
+  const homeMargin = game.homeScore - game.awayScore;
+  const spreadCovered = pick.spread === 'home'
+    ? homeMargin + game.homeSpread
+    : -homeMargin + game.awaySpread;
+  if (spreadCovered > 0) return 'win';
+  if (spreadCovered < 0) return 'loss';
+  return 'push';
+}
+
+/** Same for an over/under pick; null too when the game has no total line. */
+export function gradeTotal(pick, game) {
+  if (!pick?.total || !game || game.status !== 'FINAL' || game.overUnder == null) return null;
+  const totalPts = game.homeScore + game.awayScore;
+  if (totalPts === game.overUnder) return 'push';
+  const hit = (pick.total === 'over' && totalPts > game.overUnder) ||
+              (pick.total === 'under' && totalPts < game.overUnder);
+  return hit ? 'win' : 'loss';
+}

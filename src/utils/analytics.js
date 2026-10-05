@@ -1,29 +1,9 @@
-import { lockBonusValue, hasSpreadLock, hasTotalLock } from './scoring';
+import { lockBonusValue, hasSpreadLock, hasTotalLock, gradeSpread, gradeTotal } from './scoring';
 
-// The win/loss/push formula itself is still a separate copy from
-// leaderboard.js/PickMatrix.jsx/App.jsx (deliberate -- see the note in
-// StatsPage.jsx history). The lock-bonus rule, which actually changes
-// between those files now, is shared via scoring.js instead.
-
-function gradeSpread(pick, game) {
-  if (!pick?.spread || !game || game.status !== 'FINAL') return null;
-  const homeMargin = game.homeScore - game.awayScore;
-  const spreadCovered = pick.spread === 'home'
-    ? homeMargin + game.homeSpread
-    : -homeMargin + game.awaySpread;
-  if (spreadCovered > 0) return 'win';
-  if (spreadCovered < 0) return 'loss';
-  return 'push';
-}
-
-function gradeTotal(pick, game) {
-  if (!pick?.total || !game || game.status !== 'FINAL' || game.overUnder == null) return null;
-  const totalPts = game.homeScore + game.awayScore;
-  if (totalPts === game.overUnder) return 'push';
-  const hit = (pick.total === 'over' && totalPts > game.overUnder) ||
-              (pick.total === 'under' && totalPts < game.overUnder);
-  return hit ? 'win' : 'loss';
-}
+// Grading (gradeSpread / gradeTotal) and the lock-bonus rule live in
+// scoring.js. leaderboard.js, PickMatrix.jsx and App.jsx still carry their own
+// copies of the win/loss/push formula (backlog item 2); the stats code and its
+// tests cross-check against leaderboard.js so the two can't drift unnoticed.
 
 function findGame(weekGames, gameId) {
   return weekGames.find((g) => g.id.toString() === gameId.toString());
@@ -170,3 +150,4 @@ export function findBiggestUpset(weeklyChalk = []) {
   });
   return worst;
 }
+

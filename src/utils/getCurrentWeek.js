@@ -1,3 +1,6 @@
+// One place to roll the app over to a new season (also update WEEK_SCHEDULE below).
+export const SEASON_YEAR = 2026;
+
 const WEEK_SCHEDULE = [
   { week: 0, start: new Date('2026-08-26'), end: new Date('2026-09-02') },
   { week: 1, start: new Date('2026-09-02'), end: new Date('2026-09-09') },
@@ -29,3 +32,4 @@ export function isGameLocked(gameStartDate) {
   if (!gameStartDate) return false;
   return new Date() >= new Date(gameStartDate);
 }
+

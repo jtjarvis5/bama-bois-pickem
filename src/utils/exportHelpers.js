@@ -1,3 +1,5 @@
+import { hasSpreadLock, hasTotalLock } from './scoring';
+
 export function copyPicksToClipboard(userName, week, picks, games) {
   let text = `🏈 *${userName}'s ${week} Picks*\n────────────────────\n`;
   games.forEach((game) => {
@@ -16,10 +18,12 @@ export function copyPicksToClipboard(userName, week, picks, games) {
       const ouValue = game.overUnder != null ? ` ${game.overUnder}` : '';
       line += `${line ? ' | ' : ''}${totalLabel}${ouValue}`;
     }
-    const lockIcon = userPick.isLock ? ' 🔒 (LOCK)' : '';
+    const locks = [hasSpreadLock(userPick) && 'SPREAD', hasTotalLock(userPick) && 'TOTAL'].filter(Boolean);
+    const lockIcon = locks.length ? ` 🔒 (${locks.join(' + ')} LOCK)` : '';
 
     text += `• ${line}${lockIcon}\n`;
   });
   navigator.clipboard.writeText(text);
   alert("Copied to clipboard!");
 }
+
