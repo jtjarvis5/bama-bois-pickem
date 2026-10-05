@@ -1,7 +1,10 @@
 import { supabase } from '../supabaseClient';
 
-const CFBD_API_KEY = import.meta.env.VITE_CFBD_API_KEY;
-const BASE_URL = 'https://api.collegefootballdata.com';
+// CFBD is reached through our own /api/cfbd proxy (api/cfbd.js) so the API
+// key stays on the server instead of shipping in the browser bundle.
+function cfbd(path, params = {}) {
+  return fetch(`/api/cfbd?${new URLSearchParams({ path, ...params })}`);
+}
 
 // ==========================================
 // COLLEGE FOOTBALL FETCHING (CFBD API)
@@ -16,11 +19,10 @@ const BASE_URL = 'https://api.collegefootballdata.com';
  */
 async function fetchRankings(year, week) {
   try {
-    const headers = { Authorization: `Bearer ${CFBD_API_KEY}` };
-    let res = await fetch(`${BASE_URL}/rankings?year=${year}&seasonType=regular`, { headers });
+    let res = await cfbd('rankings', { year, seasonType: 'regular' });
     if (!res.ok) {
       // Defensive: if the no-week form is ever rejected, retry the old way.
-      res = await fetch(`${BASE_URL}/rankings?year=${year}&week=${week}&seasonType=regular`, { headers });
+      res = await cfbd('rankings', { year, week, seasonType: 'regular' });
       if (!res.ok) return {};
     }
     const data = await res.json();
@@ -49,9 +51,7 @@ async function fetchRankings(year, week) {
 // One call returns every team's record and classification (fbs/fcs/...).
 async function fetchRecords(year) {
   try {
-    const res = await fetch(`${BASE_URL}/records?year=${year}`, {
-      headers: { Authorization: `Bearer ${CFBD_API_KEY}` }
-    });
+    const res = await cfbd('records', { year });
     if (!res.ok) return {};
     const data = await res.json();
     const map = {};
@@ -101,9 +101,7 @@ function matchupScore(g, rankMap, spread) {
 const LOGO_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 async function fetchCFBLogosFromAPI() {
-  const res = await fetch(`${BASE_URL}/teams/fbs`, {
-    headers: { Authorization: `Bearer ${CFBD_API_KEY}` }
-  });
+  const res = await cfbd('teams/fbs');
   if (!res.ok) return {};
   const teams = await res.json();
   const logoMap = {};
@@ -135,27 +133,15 @@ async function getCFBLogoMap() {
   return Object.keys(freshLogos).length > 0 ? freshLogos : (cached?.logos || {});
 }
 
-async function fetchCFBGames(year, week) {
-  if (!CFBD_API_KEY) {
-    throw new Error(
-      'VITE_CFBD_API_KEY is missing at runtime. In Vercel: Project Settings → ' +
-      'Environment Variables → make sure it is set for "Production", then trigger ' +
-      'a new deploy -- just saving the env var does not rebuild the app.'
-    );
-  }
-
-  const gamesRes = await fetch(`${BASE_URL}/games?year=${year}&week=${week}&seasonType=regular`, {
-    headers: { Authorization: `Bearer ${CFBD_API_KEY}` }
-  });
+async function fetchCFBGames(year, week, pinnedIds = null) {
+  const gamesRes = await cfbd('games', { year, week, seasonType: 'regular' });
   if (!gamesRes.ok) {
     const bodyText = await gamesRes.text().catch(() => '');
-    throw new Error(`CFBD /games request failed with status ${gamesRes.status}. ${bodyText.slice(0, 200)}`);
+    throw new Error(`CFBD /games request failed with status ${gamesRes.status}. ${bodyText.slice(0, 300)}`);
   }
   const gamesData = await gamesRes.json();
 
-  const linesRes = await fetch(`${BASE_URL}/lines?year=${year}&week=${week}&seasonType=regular`, {
-    headers: { Authorization: `Bearer ${CFBD_API_KEY}` }
-  });
+  const linesRes = await cfbd('lines', { year, week, seasonType: 'regular' });
   const linesData = linesRes.ok ? await linesRes.json() : [];
   const rankMap = await fetchRankings(year, week);
   const recordsMap = await fetchRecords(year);
@@ -229,6 +215,16 @@ async function fetchCFBGames(year, week) {
   });
 
   const formattedGames = formattedEntries.map((e) => e.game);
+
+  // Pinned slate: the games for this week were already chosen (and people
+  // may have picked on them), so skip selection entirely and just return
+  // fresh data for exactly those games. /games already contains every game
+  // of the week, so this costs no extra CFBD calls.
+  if (pinnedIds?.length) {
+    const wanted = new Set(pinnedIds.map(String));
+    return formattedGames.filter((g) => wanted.has(String(g.id)));
+  }
+
   const bamaGame = formattedGames.find(g => g.isBama);
 
   // Never feature an FCS opponent (an FCS game can't be a "top game"), then
@@ -334,8 +330,8 @@ async function fetchNFLGames(year, week) {
   }).sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
 }
 
-async function fetchWeeklyGames(year, week, sport = 'CFB') {
-  return sport === 'NFL' ? fetchNFLGames(year, week) : fetchCFBGames(year, week);
+async function fetchWeeklyGames(year, week, sport = 'CFB', pinnedIds = null) {
+  return sport === 'NFL' ? fetchNFLGames(year, week) : fetchCFBGames(year, week, pinnedIds);
 }
 
 /**
@@ -440,6 +436,33 @@ function mergeGameOdds(freshGame, previousGamesById) {
   return merged;
 }
 
+/**
+ * Whether a CFB week's slate has to stop floating. The "top 9" is re-scored
+ * from rankings/Elo/spreads on every refresh, so left alone it can swap a
+ * game out after people picked on it -- and a game that leaves the cache
+ * takes its picks and points with it. The slate is allowed to float only
+ * while it's still harmless: nobody has picked in any league of this sport
+ * for this week, and the first game is more than 24h away.
+ */
+async function isSlateLocked(cachedGames, week, sport) {
+  const earliestKickoff = Math.min(...cachedGames.map((g) => new Date(g.startDate).getTime()));
+  if (Date.now() >= earliestKickoff - FREEZE_WINDOW_MS) return true;
+
+  const { data: leagueRows, error: leagueErr } = await supabase
+    .from('leagues').select('id').eq('sport', sport);
+  if (leagueErr) return true; // can't tell -> play it safe and pin
+  const leagueIds = (leagueRows || []).map((l) => l.id);
+  if (leagueIds.length === 0) return false;
+
+  const { count, error: picksErr } = await supabase
+    .from('user_picks')
+    .select('id', { count: 'exact', head: true })
+    .eq('week', week)
+    .in('league_id', leagueIds);
+  if (picksErr) return true;
+  return (count ?? 0) > 0;
+}
+
 export async function getWeeklyGames(year, week, sport = 'CFB') {
   const cacheKey = `${sport}-${year}-${week}`;
 
@@ -464,14 +487,29 @@ export async function getWeeklyGames(year, week, sport = 'CFB') {
 
   // Cache missing or stale -- this is the only branch that spends CFBD
   // quota (for CFB) or hits ESPN (for NFL, which has no quota concern).
-  const freshGames = await fetchWeeklyGames(year, week, sport);
+  // NFL always shows the full slate, so only CFB needs pinning.
+  const pinnedIds = (sport === 'CFB' && cached?.games?.length && await isSlateLocked(cached.games, week, sport))
+    ? cached.games.map((g) => g.id)
+    : null;
+
+  const freshGames = await fetchWeeklyGames(year, week, sport, pinnedIds);
 
   // Protect against the odds-disappearing-after-kickoff issue: merge each
   // fresh game against whatever we had cached before, preferring real
   // spread/total values over ones that came back zeroed/missing.
   const previousGamesById = {};
   (cached?.games || []).forEach((g) => { previousGamesById[g.id] = g; });
-  const mergedGames = freshGames.map((g) => mergeGameOdds(g, previousGamesById));
+
+  // When pinned, keep the cached order, and if CFBD omitted a pinned game
+  // this time (rescheduled, API hiccup) keep our last copy rather than
+  // letting it -- and its picks -- disappear.
+  let slate = freshGames;
+  if (pinnedIds) {
+    const freshById = {};
+    freshGames.forEach((g) => { freshById[g.id] = g; });
+    slate = pinnedIds.map((id) => freshById[id] ?? previousGamesById[id]).filter(Boolean);
+  }
+  const mergedGames = slate.map((g) => mergeGameOdds(g, previousGamesById));
 
   const { error: writeError } = await supabase
     .from('games_cache')
@@ -511,3 +549,4 @@ export async function getCachedGamesByWeek(year, sport = 'CFB') {
   });
   return byWeek;
 }
+
