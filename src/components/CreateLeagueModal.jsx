@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { supabase } from '../supabaseClient';
+import { createLeague, friendlyError } from '../services/api';
 
 export default function CreateLeagueModal({ currentUser, onClose, onLeagueCreated }) {
   const [name, setName] = useState('');
@@ -16,30 +16,13 @@ export default function CreateLeagueModal({ currentUser, onClose, onLeagueCreate
     setError(null);
 
     try {
-      // 1. Create the league
-      const { data: leagueData, error: insertError } = await supabase
-        .from('leagues')
-        .insert([{ 
-          name: name.trim(), 
-          sport, 
-          password: password.trim() || null 
-        }])
-        .select()
-        .single();
-
-      if (insertError) throw insertError;
-
-      // 2. Automatically add the creator as a member of this league
-      const { error: memberError } = await supabase
-        .from('league_members')
-        .insert([{ league_id: leagueData.id, user_name: currentUser.name }]);
-
-      if (memberError) throw memberError;
-      
+      // Creates the league and adds you as its first member in one step.
+      // The password is hashed on the server.
+      const leagueData = await createLeague(currentUser.token, name.trim(), sport, password.trim());
       onLeagueCreated(leagueData);
     } catch (err) {
       console.error('Error creating league:', err);
-      setError(err.message);
+      setError(friendlyError(err));
     } finally {
       setIsLoading(false);
     }
@@ -108,3 +91,4 @@ export default function CreateLeagueModal({ currentUser, onClose, onLeagueCreate
     </div>
   );
 }
+

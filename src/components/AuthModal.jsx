@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { supabase } from '../supabaseClient';
+import { login, register, friendlyError } from '../services/api';
 
 export default function AuthModal({ users, onSuccess, onUserCreated, onClose }) {
   const [mode, setMode] = useState('login'); // 'login' | 'create'
@@ -26,29 +26,19 @@ export default function AuthModal({ users, onSuccess, onUserCreated, onClose }) 
         return;
       }
 
-      const { data, error: fetchErr } = await supabase
-        .from('users')
-        .select('*')
-        .eq('name', selectedUserObj.name)
-        .single();
-
-      if (fetchErr || !data) {
-        setError('User not found or PIN not set.');
-        setLoading(false);
-        return;
-      }
-
-      if (data.pin !== pin) {
+      // The PIN is checked on the server; it is never sent down to the browser.
+      const data = await login(selectedUserObj.name, pin);
+      if (!data) {
         setError('Incorrect 4-digit PIN.');
         setLoading(false);
         return;
       }
 
-      const loggedInUser = { id: data.id, name: data.name };
+      const loggedInUser = { id: data.id, name: data.name, token: data.token };
       localStorage.setItem('currentUser', JSON.stringify(loggedInUser));
       onSuccess(loggedInUser);
     } catch (err) {
-      setError(err.message || 'Login failed.');
+      setError(friendlyError(err));
     }
     setLoading(false);
   };
@@ -56,32 +46,20 @@ export default function AuthModal({ users, onSuccess, onUserCreated, onClose }) 
   const handleCreateProfile = async (e) => {
     e.preventDefault();
     setError('');
-    if (!newName.trim() || newPin.length < 4) {
-      setError('Please enter a valid name and a 4-digit PIN.');
+    if (!newName.trim() || !/^\d{4}$/.test(newPin)) {
+      setError('Please enter a name and a PIN of exactly 4 digits.');
       return;
     }
     setLoading(true);
 
     try {
-      const { data, error: createErr } = await supabase
-        .from('users')
-        .insert([{ name: newName.trim(), pin: newPin.trim() }])
-        .select()
-        .single();
-
-      if (createErr) {
-        if (createErr.code === '23505') {
-          throw new Error('A profile with that name already exists.');
-        }
-        throw createErr;
-      }
-
-      const createdUser = { id: data.id, name: data.name };
+      const data = await register(newName.trim(), newPin.trim());
+      const createdUser = { id: data.id, name: data.name, token: data.token };
       localStorage.setItem('currentUser', JSON.stringify(createdUser));
       if (onUserCreated) onUserCreated();
       onSuccess(createdUser);
     } catch (err) {
-      setError(err.message || 'Failed to create profile.');
+      setError(friendlyError(err));
     }
     setLoading(false);
   };
@@ -137,6 +115,8 @@ export default function AuthModal({ users, onSuccess, onUserCreated, onClose }) 
                 <input
                   type="password"
                   maxLength={4}
+                  inputMode="numeric"
+                  autoComplete="off"
                   placeholder="••••"
                   value={pin}
                   onChange={(e) => setPin(e.target.value)}
@@ -204,6 +184,8 @@ export default function AuthModal({ users, onSuccess, onUserCreated, onClose }) 
                 <input
                   type="password"
                   maxLength={4}
+                  inputMode="numeric"
+                  autoComplete="off"
                   placeholder="••••"
                   value={newPin}
                   onChange={(e) => setNewPin(e.target.value)}
@@ -240,3 +222,4 @@ export default function AuthModal({ users, onSuccess, onUserCreated, onClose }) 
     </div>
   );
 }
+
