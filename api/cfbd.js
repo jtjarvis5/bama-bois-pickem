@@ -33,7 +33,13 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'GET only' });
   }
 
-  const key = process.env.CFBD_API_KEY;
+  // Tolerate the usual copy/paste slips: surrounding quotes or spaces, a
+  // trailing newline, or a leading "Bearer " (this code adds that itself).
+  const key = String(process.env.CFBD_API_KEY || '')
+    .trim()
+    .replace(/^["']|["']$/g, '')
+    .replace(/^Bearer\s+/i, '')
+    .trim();
   if (!key) {
     return res.status(500).json({
       error: 'CFBD_API_KEY is not set on the server. In Vercel: Project Settings → ' +
@@ -60,6 +66,17 @@ export default async function handler(req, res) {
       headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
     });
     const body = await upstream.text();
+
+    // CFBD rejected the key itself: say so in words, instead of a bare 401.
+    if (upstream.status === 401 || upstream.status === 403) {
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(502).json({
+        error: `CollegeFootballData rejected the API key (HTTP ${upstream.status}). ` +
+               'Check CFBD_API_KEY in Vercel: it should be only the key itself ' +
+               '(no quotes, no "Bearer "), set for the Production environment, then redeploy. ' +
+               'If it is correct, the key may have been revoked: request a new one at collegefootballdata.com.',
+      });
+    }
 
     // Only successful responses are cached; an error must never be pinned
     // at the edge for ten minutes.
