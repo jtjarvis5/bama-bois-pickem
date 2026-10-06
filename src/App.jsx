@@ -92,6 +92,7 @@ export default function App() {
   // order and let an older object overwrite a newer one.
   const saveChain = useRef(Promise.resolve());
   const pendingSaves = useRef(0);
+  const loadedSlateKey = useRef(null); // "league:week" of the games currently on screen
   // Bumped to force a re-read of this week's picks from the server (e.g.
   // after the server rejects a save and our local picks are out of date).
   const [picksReloadTick, setPicksReloadTick] = useState(0);
@@ -182,18 +183,26 @@ export default function App() {
   useEffect(() => {
     let cancelled = false; // a slow response for a week/league we've left must not overwrite the current one
     async function loadGames() {
+      // Never leave another week's games on screen: picks tapped there would be
+      // saved against the wrong week. (Only clear on a real week/league change,
+      // not on a background refresh of the same slate.)
+      const slateKey = `${selectedLeagueId}:${weekNum}`;
+      if (loadedSlateKey.current !== slateKey) setGames([]);
       try {
         setApiError(null);
         const liveGames = await getWeeklyGames(SEASON_YEAR, weekNum, activeLeague.sport);
         if (cancelled) return;
         if (liveGames && liveGames.length > 0) {
+          loadedSlateKey.current = slateKey;
           setGames(liveGames);
         } else {
+          setGames([]);
           setApiError(`API returned 0 games for Week ${weekNum}.`);
         }
       } catch (err) {
         if (cancelled) return;
         console.error("Failed to load games:", err);
+        setGames([]);
         setApiError(`API Exception: ${err.message}`);
       }
     }
