@@ -9,6 +9,8 @@ import AuthModal from './components/AuthModal';
 import CreateLeagueModal from './components/CreateLeagueModal';
 import JoinLeagueModal from './components/JoinLeagueModal';
 import StatsPage from './components/StatsPage';
+import AdminPage from './components/AdminPage';
+import EditNotice from './components/EditNotice';
 import { hasSpreadLock, hasTotalLock, lockBonusValue } from './utils/scoring';
 
 // How often to re-read picks from the server while the tab is open.
@@ -93,6 +95,9 @@ export default function App() {
   const saveChain = useRef(Promise.resolve());
   const pendingSaves = useRef(0);
   const loadedSlateKey = useRef(null); // "league:week" of the games currently on screen
+  const [isAdmin, setIsAdmin] = useState(false);       // creator of the selected league
+  const [seasonReloadTick, setSeasonReloadTick] = useState(0);
+  const [membersReloadTick, setMembersReloadTick] = useState(0);
   // Bumped to force a re-read of this week's picks from the server (e.g.
   // after the server rejects a save and our local picks are out of date).
   const [picksReloadTick, setPicksReloadTick] = useState(0);
@@ -266,7 +271,21 @@ export default function App() {
       if (document.visibilityState === 'visible') loadSeasonStandingsData();
     }, SEASON_POLL_MS);
     return () => { cancelled = true; clearInterval(timer); };
-  }, [weekNum, selectedLeagueId, activeLeague, token]);
+  }, [weekNum, selectedLeagueId, activeLeague, token, seasonReloadTick]);
+
+  // Is the logged-in person the admin (creator) of this league? The server
+  // decides; this only controls whether the Admin tab is shown.
+  useEffect(() => {
+    let cancelled = false;
+    setIsAdmin(false);
+    if (!token || !selectedLeagueId) return undefined;
+    api.isLeagueAdmin(token, selectedLeagueId)
+      .then((yes) => { if (!cancelled) setIsAdmin(yes === true); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [token, selectedLeagueId]);
+
+  useEffect(() => { if (!isAdmin && activeTab === 'admin') setActiveTab('games'); }, [isAdmin, activeTab]);
 
   // Restrict Standings members to those who have joined this specific league
   const [leagueMembers, setLeagueMembers] = useState([]);
@@ -280,7 +299,7 @@ export default function App() {
       }
     }
     if (selectedLeagueId) fetchLeagueMembers();
-  }, [selectedLeagueId, allLeaguePicks]);
+  }, [selectedLeagueId, allLeaguePicks, membersReloadTick]);
 
   const availableMembers = usersList.map((u) => u.name);
   // Everyone shown in Standings, Who Picked Who and Stats. Recorded members
@@ -497,7 +516,7 @@ export default function App() {
 
       <main className="max-w-4xl mx-auto px-5 py-6">
         <div className="flex gap-2 mb-5">
-          {[['games', 'Games'], ['stats', 'Stats']].map(([key, label]) => (
+          {[['games', 'Games'], ['stats', 'Stats'], ...(isAdmin ? [['admin', 'Admin']] : [])].map(([key, label]) => (
             <button
               key={key}
               onClick={() => setActiveTab(key)}
@@ -537,6 +556,10 @@ export default function App() {
             </button>
           </div>
         ) : null}
+
+        {currentUser && token && selectedLeagueId && (
+          <EditNotice token={token} leagueId={selectedLeagueId} userName={currentUser.name} gamesByWeek={gamesByWeek} />
+        )}
 
         {isSaving && <div className="mb-3 text-xs text-muted font-medium">Saving…</div>}
         {apiError && <div className="mb-4 text-xs text-red-600 bg-red-50 p-3 rounded-lg border border-red-200">{apiError}</div>}
@@ -722,6 +745,27 @@ export default function App() {
         </>
         )}
 
+        {activeTab === 'admin' && isAdmin && (
+          <AdminPage
+            token={token}
+            leagueId={selectedLeagueId}
+            leagueName={activeLeague?.name}
+            members={activeStandingsMembers}
+            games={games}
+            gamesByWeek={gamesByWeek}
+            defaultWeek={weekNum}
+            onSaved={() => {
+              setPicksReloadTick((t) => t + 1);
+              setSeasonReloadTick((t) => t + 1);
+            }}
+            onMembersChanged={() => {
+              setMembersReloadTick((t) => t + 1);
+              setPicksReloadTick((t) => t + 1);
+              setSeasonReloadTick((t) => t + 1);
+            }}
+          />
+        )}
+
         {activeTab === 'stats' && (
           <StatsPage
             seasonPicks={seasonPicks}
@@ -772,4 +816,3 @@ export default function App() {
     </div>
   );
 }
-
