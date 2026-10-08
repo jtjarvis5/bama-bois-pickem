@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import ActivityLog from './admin/ActivityLog';
 import Export from './admin/Export';
 import Members from './admin/Members';
+import Recap from './admin/Recap';
 import PicksEditor from './admin/PicksEditor';
 import Status from './admin/Status';
 import { gamesForWeek } from './admin/shared';
@@ -12,6 +13,7 @@ import { gamesForWeek } from './admin/shared';
 const TABS = [
   ['status', 'Status'],
   ['edit', 'Edit'],
+  ['recap', 'Recap'],
   ['members', 'Members'],
   ['export', 'Export'],
   ['log', 'Log'],
@@ -63,6 +65,10 @@ export default function AdminPage({
         <PicksEditor token={token} leagueId={leagueId} members={members} games={games} gamesByWeek={gamesByWeek}
           defaultWeek={defaultWeek} weeks={weeks} week={week} setWeek={setWeek}
           member={editMember} setMember={setMember} onSaved={saved} />
+      )}
+      {tab === 'recap' && (
+        <Recap token={token} leagueId={leagueId} leagueName={leagueName} week={week} setWeek={setWeek} weeks={weeks}
+          gamesByWeek={gamesByWeek} members={members} />
       )}
       {tab === 'members' && <Members token={token} leagueId={leagueId} onChanged={membersChanged} />}
       {tab === 'export' && (
