@@ -1,31 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as api from '../../services/api';
 import { buildReminder, summarizeWeek } from '../../utils/adminTools';
-import { inputCls } from './shared';
+import { copyText, inputCls } from './shared';
 
 // Who has picked this week, and a one-tap reminder to paste into the group chat.
-
-async function copyText(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.setAttribute('readonly', '');
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      const ok = document.execCommand('copy');
-      ta.remove();
-      return ok;
-    } catch {
-      return false;
-    }
-  }
-}
 
 export default function Status({
   token, leagueId, leagueName, week, setWeek, weeks, weekGames, reloadKey, onEdit,

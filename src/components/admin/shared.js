@@ -47,3 +47,25 @@ export function gamesForWeek(gamesByWeek, games, week, defaultWeek) {
 
 export const inputCls =
   'mt-1 block w-full border border-line rounded-lg px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink bg-white';
+
+export async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
