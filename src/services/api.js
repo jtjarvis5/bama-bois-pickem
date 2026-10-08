@@ -23,6 +23,14 @@ const MESSAGES = {
   invalid_pin: 'The PIN must be exactly 4 digits.',
   not_a_member: 'Join this league before making picks.',
   league_not_found: 'That league no longer exists.',
+  not_admin: 'Only the league admin can do that.',
+  too_many_locks: 'Only one spread lock and one total lock are allowed per week.',
+  user_not_found: 'That member does not exist.',
+  bad_picks: 'Those picks are not valid.',
+  removed_from_league: 'You were removed from this league by its admin.',
+  member_removed: 'That person was removed from the league. Add them back first.',
+  cannot_reset_admin: "A league admin's PIN can only be reset by themselves.",
+  cannot_remove_admin: "The league's admin can't be removed.",
 };
 
 export function errorCode(err) {
@@ -77,3 +85,45 @@ export const getWeekPicks = (token, leagueId, week) =>
 
 export const getSeasonPicks = (token, leagueId) =>
   rpc('app_get_season_picks', { p_token: token || null, p_league_id: leagueId });
+
+// ---- league admin (only works for the person who created the league) ----
+export const isLeagueAdmin = (token, leagueId) =>
+  token ? rpc('app_is_league_admin', { p_token: token, p_league_id: leagueId }) : Promise.resolve(false);
+
+export const adminGetPicks = (token, leagueId, week, user) =>
+  rpc('app_admin_get_picks', { p_token: token, p_league_id: leagueId, p_week: week, p_user: user });
+
+export const adminSavePicks = (token, leagueId, week, user, picks) =>
+  rpc('app_admin_save_picks', { p_token: token, p_league_id: leagueId, p_week: week, p_user: user, p_picks: picks });
+
+export const adminAudit = (token, leagueId) =>
+  rpc('app_admin_audit', { p_token: token, p_league_id: leagueId });
+
+// ---- league admin tools (05_admin_tools.sql) ----
+export const adminWeekPicks = (token, leagueId, week) =>
+  rpc('app_admin_week_picks', { p_token: token, p_league_id: leagueId, p_week: week });
+
+export const adminSeasonPicks = (token, leagueId) =>
+  rpc('app_admin_season_picks', { p_token: token, p_league_id: leagueId });
+
+export const adminMembers = (token, leagueId) =>
+  rpc('app_admin_members', { p_token: token, p_league_id: leagueId });
+
+export const adminCandidates = (token, leagueId) =>
+  rpc('app_admin_candidates', { p_token: token, p_league_id: leagueId });
+
+export const adminAddMember = (token, leagueId, user) =>
+  rpc('app_admin_add_member', { p_token: token, p_league_id: leagueId, p_user: user });
+
+export const adminRemoveMember = (token, leagueId, user) =>
+  rpc('app_admin_remove_member', { p_token: token, p_league_id: leagueId, p_user: user });
+
+export const adminResetPin = (token, leagueId, user, newPin) =>
+  rpc('app_admin_reset_pin', { p_token: token, p_league_id: leagueId, p_user: user, p_new_pin: newPin });
+
+export const adminLog = (token, leagueId) =>
+  rpc('app_admin_log', { p_token: token, p_league_id: leagueId });
+
+// Edits an admin made to MY picks in the last 30 days (for the notice banner).
+export const myPickEdits = (token, leagueId) =>
+  rpc('app_my_pick_edits', { p_token: token, p_league_id: leagueId });
