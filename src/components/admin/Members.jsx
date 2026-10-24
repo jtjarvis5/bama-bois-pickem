@@ -7,7 +7,7 @@ import { inputCls } from './shared';
 // picks in the database (adding them back restores everything) but hides them
 // from Standings, Who Picked Who and Stats.
 
-export default function Members({ token, leagueId, onChanged }) {
+export default function Members({ token, leagueId, leagueName, onChanged, onLeagueDeleted }) {
   const [rows, setRows] = useState(null);
   const [candidates, setCandidates] = useState([]);
   const [error, setError] = useState('');
@@ -16,6 +16,8 @@ export default function Members({ token, leagueId, onChanged }) {
   const [pin, setPin] = useState('');
   const [result, setResult] = useState(null);   // { kind, text }
   const [toAdd, setToAdd] = useState('');
+  const [confirmText, setConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -63,6 +65,19 @@ export default function Members({ token, leagueId, onChanged }) {
       setResult({ kind: 'pin', text: `${name}'s PIN is now ${used}. They were signed out everywhere. Send it to them privately; it is not shown again.` });
       setPinFor(null);
       setPin('');
+    }
+  };
+
+  const deleteLeague = async () => {
+    if (confirmText !== leagueName || deleting) return;
+    if (!window.confirm(`Permanently delete "${leagueName}" and all of its picks? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      await api.adminDeleteLeague(token, leagueId, confirmText);
+      onLeagueDeleted?.(leagueId);
+    } catch (err) {
+      setResult({ kind: 'error', text: api.friendlyError(err) });
+      setDeleting(false);
     }
   };
 
@@ -169,6 +184,25 @@ export default function Members({ token, leagueId, onChanged }) {
         )}
         <p className="text-xs text-muted mt-3">They need an account first (they can sign up on the login screen).</p>
       </div>
+
+      {leagueId !== 1 && (
+        <div className="rounded-card border border-red-200 bg-red-50/50 p-4 mt-8" data-testid="danger-zone">
+          <h3 className="font-display text-base font-semibold text-red-700">Delete this league</h3>
+          <p className="text-xs text-muted mt-1 mb-3">
+            Permanently removes the league, its members list and every pick in it. Accounts and PINs are not affected.
+            This can't be undone. Download the Season picks CSV first if you want a copy.
+          </p>
+          <label className="block text-xs font-semibold text-muted uppercase tracking-wide">
+            Type the league name to confirm: <span className="normal-case text-ink">{leagueName}</span>
+            <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} autoComplete="off"
+              aria-label="Type the league name to confirm" className={inputCls} />
+          </label>
+          <button type="button" onClick={deleteLeague} disabled={confirmText !== leagueName || deleting}
+            className="mt-3 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold disabled:opacity-40">
+            {deleting ? 'Deleting…' : 'Delete league'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
