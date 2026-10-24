@@ -20,7 +20,7 @@ const TABS = [
 ];
 
 export default function AdminPage({
-  token, leagueId, leagueName, members = [], games = [], gamesByWeek = {}, defaultWeek, onSaved, onMembersChanged,
+  token, leagueId, leagueName, members = [], games = [], gamesByWeek = {}, defaultWeek, onSaved, onMembersChanged, onLeagueDeleted,
 }) {
   const [tab, setTab] = useState('status');
   const [week, setWeek] = useState(defaultWeek);
@@ -70,7 +70,7 @@ export default function AdminPage({
         <Recap token={token} leagueId={leagueId} leagueName={leagueName} week={week} setWeek={setWeek} weeks={weeks}
           gamesByWeek={gamesByWeek} members={members} />
       )}
-      {tab === 'members' && <Members token={token} leagueId={leagueId} onChanged={membersChanged} />}
+      {tab === 'members' && <Members token={token} leagueId={leagueId} leagueName={leagueName} onChanged={membersChanged} onLeagueDeleted={onLeagueDeleted} />}
       {tab === 'export' && (
         <Export token={token} leagueId={leagueId} leagueName={leagueName} gamesByWeek={gamesByWeek} members={members} />
       )}
