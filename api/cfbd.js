@@ -62,9 +62,15 @@ export default async function handler(req, res) {
   }
 
   try {
-    const upstream = await fetch(`${CFBD_BASE}/${path}${qs.toString() ? `?${qs}` : ''}`, {
-      headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
-    });
+    // CFBD sits behind Cloudflare and briefly returns 502/503/504 when overloaded
+    // (game-day mornings). Try up to three times before giving up.
+    const url = `${CFBD_BASE}/${path}${qs.toString() ? `?${qs}` : ''}`;
+    let upstream;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      upstream = await fetch(url, { headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' } });
+      if (![502, 503, 504].includes(upstream.status) || attempt === 3) break;
+      await new Promise((r) => setTimeout(r, 400 * attempt));
+    }
     const body = await upstream.text();
 
     // CFBD rejected the key itself: say so in words, instead of a bare 401.
