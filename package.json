@@ -7,10 +7,11 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "npx tsx tests/insights.test.mjs && npx tsx tests/admin.test.mjs && npx tsx tests/recap.test.mjs"
+    "test": "npx tsx tests/insights.test.mjs && npx tsx tests/admin.test.mjs && npx tsx tests/recap.test.mjs && npx tsx tests/picksdue.test.mjs && npx tsx tests/push.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
+    "web-push": "^3.6.7",
     "lucide-react": "^0.263.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
