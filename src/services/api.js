@@ -27,6 +27,7 @@ const MESSAGES = {
   too_many_locks: 'Only one spread lock and one total lock are allowed per week.',
   user_not_found: 'That member does not exist.',
   bad_picks: 'Those picks are not valid.',
+  bad_subscription: 'That device could not be registered for reminders.',
   removed_from_league: 'You were removed from this league by its admin.',
   member_removed: 'That person was removed from the league. Add them back first.',
   cannot_reset_admin: "A league admin's PIN can only be reset by themselves.",
@@ -127,3 +128,13 @@ export const adminLog = (token, leagueId) =>
 // Edits an admin made to MY picks in the last 30 days (for the notice banner).
 export const myPickEdits = (token, leagueId) =>
   rpc('app_my_pick_edits', { p_token: token, p_league_id: leagueId });
+
+// ---- push reminders (06_push.sql) ----
+export const pushSave = (token, endpoint, p256dh, auth) =>
+  rpc('app_push_save', { p_token: token, p_endpoint: endpoint, p_p256dh: p256dh, p_auth: auth });
+
+export const pushRemove = (token, endpoint) =>
+  rpc('app_push_remove', { p_token: token, p_endpoint: endpoint });
+
+export const pushStatus = (token, endpoint) =>
+  rpc('app_push_status', { p_token: token, p_endpoint: endpoint });
