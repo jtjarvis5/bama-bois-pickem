@@ -27,6 +27,8 @@ const MESSAGES = {
   too_many_locks: 'Only one spread lock and one total lock are allowed per week.',
   user_not_found: 'That member does not exist.',
   bad_picks: 'Those picks are not valid.',
+  cannot_delete_default: 'The original league cannot be deleted.',
+  name_mismatch: 'The name you typed does not match the league name.',
   bad_subscription: 'That device could not be registered for reminders.',
   removed_from_league: 'You were removed from this league by its admin.',
   member_removed: 'That person was removed from the league. Add them back first.',
@@ -138,3 +140,6 @@ export const pushRemove = (token, endpoint) =>
 
 export const pushStatus = (token, endpoint) =>
   rpc('app_push_status', { p_token: token, p_endpoint: endpoint });
+
+export const adminDeleteLeague = (token, leagueId, confirmName) =>
+  rpc('app_admin_delete_league', { p_token: token, p_league_id: leagueId, p_confirm_name: confirmName });
