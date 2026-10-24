@@ -768,6 +768,12 @@ export default function App() {
               setPicksReloadTick((t) => t + 1);
               setSeasonReloadTick((t) => t + 1);
             }}
+            onLeagueDeleted={(deletedId) => {
+              setLeagues((prev) => prev.filter((l) => l.id !== deletedId));
+              setSelectedLeagueId(1);
+              setActiveTab('games');
+              setIsAdmin(false);
+            }}
             onMembersChanged={() => {
               setMembersReloadTick((t) => t + 1);
               setPicksReloadTick((t) => t + 1);
