@@ -492,7 +492,19 @@ export async function getWeeklyGames(year, week, sport = 'CFB') {
     ? cached.games.map((g) => g.id)
     : null;
 
-  const freshGames = await fetchWeeklyGames(year, week, sport, pinnedIds);
+  let freshGames;
+  try {
+    freshGames = await fetchWeeklyGames(year, week, sport, pinnedIds);
+  } catch (err) {
+    // The data provider is down or overloaded (e.g. a 502). The last saved
+    // copy of the week is slightly out of date but far better than an error
+    // screen. fetched_at is left alone, so the next visit tries again.
+    if (cached?.games?.length) {
+      console.warn('Game data source unavailable; showing the last saved games:', err.message);
+      return cached.games;
+    }
+    throw err;
+  }
 
   // Protect against the odds-disappearing-after-kickoff issue: merge each
   // fresh game against whatever we had cached before, preferring real
@@ -549,4 +561,3 @@ export async function getCachedGamesByWeek(year, sport = 'CFB') {
   });
   return byWeek;
 }
-
