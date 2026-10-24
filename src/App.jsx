@@ -11,6 +11,8 @@ import JoinLeagueModal from './components/JoinLeagueModal';
 import StatsPage from './components/StatsPage';
 import AdminPage from './components/AdminPage';
 import EditNotice from './components/EditNotice';
+import PicksDueBanner from './components/PicksDueBanner';
+import PushToggle from './components/PushToggle';
 import { hasSpreadLock, hasTotalLock, lockBonusValue } from './utils/scoring';
 
 // How often to re-read picks from the server while the tab is open.
@@ -559,6 +561,14 @@ export default function App() {
 
         {currentUser && token && selectedLeagueId && (
           <EditNotice token={token} leagueId={selectedLeagueId} userName={currentUser.name} gamesByWeek={gamesByWeek} />
+        )}
+
+        {currentUser && currentUser.name === selectedUser && (
+          <PicksDueBanner week={weekNum} games={games} picks={picks} />
+        )}
+
+        {currentUser && token && currentUser.name === selectedUser && (
+          <PushToggle token={token} userName={currentUser.name} />
         )}
 
         {isSaving && <div className="mb-3 text-xs text-muted font-medium">Saving…</div>}
