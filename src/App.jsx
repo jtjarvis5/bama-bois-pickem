@@ -77,6 +77,9 @@ export default function App() {
   // Game & Pick Data
   const [games, setGames] = useState([]);
   const [picks, setPicks] = useState({});
+  // Which league/week/user the picks on screen belong to. The due-banner waits
+  // for this so it can't flash "games need your pick" before picks have loaded.
+  const [picksKey, setPicksKey] = useState(null);
   const [allLeaguePicks, setAllLeaguePicks] = useState([]);
   const [seasonPicks, setSeasonPicks] = useState([]);
   const [gamesByWeek, setGamesByWeek] = useState({});
@@ -234,6 +237,7 @@ export default function App() {
         const data = await api.getWeekPicks(token, selectedLeagueId, weekNum);
         if (cancelled || !data) return;
         setAllLeaguePicks(data);
+        setPicksKey(`${selectedLeagueId}:${weekNum}:${selectedUser}`);
         // When you're looking at your own picks, what's on screen is already
         // ahead of the server, so only the first read of a week is applied.
         const viewingSelf = Boolean(currentUser) && selectedUser === currentUser.name;
@@ -566,7 +570,7 @@ export default function App() {
           <EditNotice token={token} leagueId={selectedLeagueId} userName={currentUser.name} gamesByWeek={gamesByWeek} />
         )}
 
-        {currentUser && currentUser.name === selectedUser && (
+        {currentUser && currentUser.name === selectedUser && picksKey === `${selectedLeagueId}:${weekNum}:${selectedUser}` && (
           <PicksDueBanner week={weekNum} games={games} picks={picks} />
         )}
 
