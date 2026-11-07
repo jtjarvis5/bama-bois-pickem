@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as api from '../../services/api';
 import { canon, pickText, whenText } from './shared';
+import { weekLabel } from '../../utils/weekLabel';
 
 // Everything the admin has done in this league: pick edits (with before/after)
 // and member actions (PIN resets, adds, removals), newest first.
@@ -65,7 +66,7 @@ function AuditRow({ row, gamesForWeek }) {
     <details className="p-3 text-sm">
       <summary className="cursor-pointer text-ink">
         <span className="font-medium">{row.admin_user}</span> edited{' '}
-        <span className="font-medium">{row.target_user}</span>'s Week {row.week}
+        <span className="font-medium">{row.target_user}</span>'s {weekLabel(row.week)}
         <span className="text-muted"> · {ids.length} game{ids.length === 1 ? '' : 's'} · {whenText(row.changed_at)}</span>
       </summary>
       <ul className="mt-2 space-y-1 text-xs text-muted">

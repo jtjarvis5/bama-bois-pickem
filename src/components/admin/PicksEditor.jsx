@@ -3,6 +3,7 @@ import * as api from '../../services/api';
 import { isGameLocked } from '../../utils/getCurrentWeek';
 import { hasSpreadLock, hasTotalLock } from '../../utils/scoring';
 import { byKickoff, canon, same, side } from './shared';
+import { weekLabel } from '../../utils/weekLabel';
 
 export default function PicksEditor({
   token, leagueId, members = [], games = [], gamesByWeek = {}, defaultWeek, weeks = [],
@@ -83,7 +84,7 @@ export default function PicksEditor({
   const save = async () => {
     if (!dirty || saving) return;
     const ok = window.confirm(
-      `Save these picks for ${member} (Week ${week})? This changes their picks and is recorded in the admin log.`
+      `Save these picks for ${member} (${weekLabel(week)})? This changes their picks and is recorded in the admin log.`
     );
     if (!ok) return;
     setSaving(true);
@@ -93,7 +94,7 @@ export default function PicksEditor({
       const fresh = (await api.adminGetPicks(token, leagueId, week, member)) || {};
       setOriginal(fresh);
       setDraft(fresh);
-      setNotice({ kind: 'ok', text: `Saved ${member}'s Week ${week} picks.` });
+      setNotice({ kind: 'ok', text: `Saved ${member}'s ${weekLabel(week)} picks.` });
       onSaved?.();
     } catch (err) {
       setNotice({ kind: 'error', text: api.friendlyError(err) });
@@ -132,7 +133,7 @@ export default function PicksEditor({
               onChange={(e) => setWeek(Number(e.target.value))}
               className="mt-1 block w-full border border-line rounded-lg px-3 py-2 text-sm font-normal normal-case tracking-normal text-ink bg-white"
             >
-              {weeks.map((w) => <option key={w} value={w}>Week {w}</option>)}
+              {weeks.map((w) => <option key={w} value={w}>{weekLabel(w)}</option>)}
             </select>
           </label>
         </div>
@@ -155,7 +156,7 @@ export default function PicksEditor({
         <div className="text-sm text-muted py-8 text-center">Loading {member}'s picks…</div>
       ) : weekGames.length === 0 ? (
         <div className="text-sm text-muted py-8 text-center">
-          No games are saved for Week {week} yet. Open that week on the Games tab once so its games load, then come back.
+          No games are saved for {weekLabel(week)} yet. Open that week on the Games tab once so its games load, then come back.
         </div>
       ) : (
         <div className="space-y-3 mb-4">

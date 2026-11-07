@@ -5,6 +5,7 @@
 import { hasSpreadLock, hasTotalLock } from './scoring';
 import { calculateSeasonStandings } from './leaderboard';
 import { buildPickEvents, buildWeekGrid, rankMembers } from './insights';
+import { weekLabel } from './weekLabel';
 
 const kickoffMs = (game) => new Date(game.startDate).getTime();
 
@@ -68,7 +69,7 @@ export function buildReminder({ leagueName, week, summary, games, now = Date.now
     weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
   });
   return [
-    `📣 ${leagueName ? `${leagueName} — ` : ''}Week ${week} picks reminder`,
+    `📣 ${leagueName ? `${leagueName} — ` : ''}${weekLabel(week)} picks reminder`,
     `Still waiting on: ${names}`,
     `Next kickoff: ${when}`,
   ].join('\n');

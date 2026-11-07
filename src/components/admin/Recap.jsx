@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import * as api from '../../services/api';
 import { buildRecap } from '../../utils/recap';
 import { copyText, inputCls } from './shared';
+import { weekLabel } from '../../utils/weekLabel';
 
 // A ready-to-paste weekly recap for the group chat.
 
@@ -37,7 +38,7 @@ export default function Recap({ token, leagueId, leagueName, week, setWeek, week
           <label className="flex-1 text-xs font-semibold text-muted uppercase tracking-wide">
             Week
             <select value={week ?? ''} onChange={(e) => setWeek(Number(e.target.value))} className={inputCls}>
-              {weeks.map((w) => <option key={w} value={w}>Week {w}</option>)}
+              {weeks.map((w) => <option key={w} value={w}>{weekLabel(w)}</option>)}
             </select>
           </label>
           <button type="button" onClick={() => setTick((t) => t + 1)}
@@ -51,7 +52,7 @@ export default function Recap({ token, leagueId, leagueName, week, setWeek, week
       {!rows && !error ? (
         <div className="text-sm text-muted py-8 text-center">Loading…</div>
       ) : !recap ? (
-        !error && <div className="text-sm text-muted py-8 text-center">No finished games with picks for Week {week} yet.</div>
+        !error && <div className="text-sm text-muted py-8 text-center">No finished games with picks for {weekLabel(week)} yet.</div>
       ) : (
         <div className="rounded-card border border-line bg-white p-4 shadow-sm">
           <pre className="whitespace-pre-wrap break-words text-xs text-ink bg-paper/60 border border-line rounded-lg p-3 mb-3 font-sans" data-testid="recap-text">{recap.text}</pre>

@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import * as api from './services/api';
 import { getWeeklyGames, getCachedGamesByWeek, getCurrentNFLWeek } from './services/gameCache';
-import { getCurrentWeekString, isGameLocked, SEASON_YEAR } from './utils/getCurrentWeek';
+import { getCurrentWeekString, isGameLocked, SEASON_YEAR, BOWL_SELECTOR_OPENS } from './utils/getCurrentWeek';
+import { weekLabel, FIRST_BOWL_WEEK, BOWL_WEEKS } from './utils/weekLabel';
 import { calculateSeasonStandings } from './utils/leaderboard';
 import { copyPicksToClipboard } from './utils/exportHelpers';
 import PickMatrix from './components/PickMatrix';
@@ -111,10 +112,12 @@ export default function App() {
   const weekNum = parseInt(selectedWeek.split(' ')[1], 10);
   const activeLeague = leagues.find(l => l.id === selectedLeagueId) || leagues[0];
 
-  // NFL has no Week 0; CFB runs 0-15 (CFBD files Army-Navy under Week 15).
+  // NFL has no Week 0; CFB runs 0-15 (CFBD files Army-Navy under Week 15),
+  // then bowl season (including the playoff) as "Bowls 1-7" once December nears.
+  const showBowls = new Date() >= BOWL_SELECTOR_OPENS || weekNum >= FIRST_BOWL_WEEK;
   const weekOptions = activeLeague?.sport === 'NFL'
     ? Array.from({ length: 18 }, (_, i) => i + 1)
-    : Array.from({ length: 16 }, (_, i) => i);
+    : Array.from({ length: showBowls ? FIRST_BOWL_WEEK + BOWL_WEEKS : FIRST_BOWL_WEEK }, (_, i) => i);
 
   useEffect(() => {
     async function initLeagues() {
@@ -211,7 +214,7 @@ export default function App() {
           setGames(liveGames);
         } else {
           setGames([]);
-          setApiError(`API returned 0 games for Week ${weekNum}.`);
+          setApiError(`API returned 0 games for ${weekLabel(weekNum)}.`);
         }
       } catch (err) {
         if (cancelled) return;
@@ -516,7 +519,7 @@ export default function App() {
                 onChange={(e) => setSelectedWeek(e.target.value)}
                 className="appearance-none bg-white/10 text-white text-sm font-medium rounded-full pl-4 pr-9 py-2 border border-white/15 focus:outline-none focus:ring-2 focus:ring-white/40"
               >
-                {weekOptions.map((w) => <option key={w} value={`Week ${w}`} className="text-ink">Week {w}</option>)}
+                {weekOptions.map((w) => <option key={w} value={`Week ${w}`} className="text-ink">{weekLabel(w)}</option>)}
               </select>
               <Chevron />
             </div>
@@ -650,6 +653,8 @@ export default function App() {
                   <span className="text-xs font-medium text-muted">{teamLabel(game.awayAbbr, game.awayRank, game.awayRecord)} @ {teamLabel(game.homeAbbr, game.homeRank, game.homeRecord)}</span>
                   {game.homeLogo && <img src={game.homeLogo} alt="" className="w-5 h-5 object-contain" />}
                 </div>
+
+                {game.note && <div className="text-[11px] text-muted text-center -mt-1.5 mb-2.5">{game.note}</div>}
 
                 {!isFinal && <WeatherLine weather={game.weather} />}
 

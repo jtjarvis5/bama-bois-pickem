@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import * as api from '../../services/api';
 import { buildReminder, summarizeWeek } from '../../utils/adminTools';
 import { copyText, inputCls } from './shared';
+import { weekLabel } from '../../utils/weekLabel';
 
 // Who has picked this week, and a one-tap reminder to paste into the group chat.
 
@@ -47,7 +48,7 @@ export default function Status({
           <label className="flex-1 text-xs font-semibold text-muted uppercase tracking-wide">
             Week
             <select value={week ?? ''} onChange={(e) => setWeek(Number(e.target.value))} className={inputCls}>
-              {weeks.map((w) => <option key={w} value={w}>Week {w}</option>)}
+              {weeks.map((w) => <option key={w} value={w}>{weekLabel(w)}</option>)}
             </select>
           </label>
           <button type="button" onClick={() => setTick((t) => t + 1)} disabled={loading}
@@ -67,7 +68,7 @@ export default function Status({
 
       {weekGames.length === 0 ? (
         <div className="text-sm text-muted py-8 text-center">
-          No games are saved for Week {week} yet. Open that week on the Games tab once so its games load, then come back.
+          No games are saved for {weekLabel(week)} yet. Open that week on the Games tab once so its games load, then come back.
         </div>
       ) : !rows ? (
         !error && <div className="text-sm text-muted py-8 text-center">Loading picks…</div>

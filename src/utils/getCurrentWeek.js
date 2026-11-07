@@ -1,5 +1,21 @@
+import { FIRST_BOWL_WEEK, BOWL_WEEKS } from './weekLabel.js';
 // One place to roll the app over to a new season (also update WEEK_SCHEDULE below).
 export const SEASON_YEAR = 2026;
+
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+// Monday Dec 14 2026, 00:00 Central. Bowl games are grouped into weekly
+// stages from here (update with SEASON_YEAR each year).
+export const BOWL_ANCHOR = new Date('2026-12-14T06:00:00Z');
+
+/** Which bowl week (16-22) a postseason game belongs to, by kickoff date. */
+export function bowlWeekFor(startDate) {
+  const t = new Date(startDate).getTime();
+  const stage = Math.floor((t - BOWL_ANCHOR.getTime()) / WEEK_MS);
+  return FIRST_BOWL_WEEK + Math.min(BOWL_WEEKS - 1, Math.max(0, stage));
+}
+
+/** Bowl weeks show up in the selector once conference play is wrapping up. */
+export const BOWL_SELECTOR_OPENS = new Date('2026-12-01');
 
 const WEEK_SCHEDULE = [
   { week: 0, start: new Date('2026-08-26'), end: new Date('2026-09-02') },
@@ -16,7 +32,14 @@ const WEEK_SCHEDULE = [
   { week: 11, start: new Date('2026-11-11'), end: new Date('2026-11-18') },
   { week: 12, start: new Date('2026-11-18'), end: new Date('2026-11-25') },
   { week: 13, start: new Date('2026-11-25'), end: new Date('2026-12-02') },
-  { week: 14, start: new Date('2026-12-02'), end: new Date('2026-12-09') }
+  { week: 14, start: new Date('2026-12-02'), end: new Date('2026-12-09') },
+  { week: 15, start: new Date('2026-12-09'), end: BOWL_ANCHOR },
+  // Bowl season: weeks 16-22, one per calendar week (Mon-Sun, Central time).
+  ...Array.from({ length: BOWL_WEEKS }, (_, i) => ({
+    week: FIRST_BOWL_WEEK + i,
+    start: new Date(BOWL_ANCHOR.getTime() + i * WEEK_MS),
+    end: new Date(BOWL_ANCHOR.getTime() + (i + 1) * WEEK_MS),
+  })),
 ];
 
 // CFB-specific (includes Week 0 for the season-opening weekend).

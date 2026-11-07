@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import * as api from '../services/api';
 import { canon, pickText, whenText } from './admin/shared';
+import { weekLabel } from '../utils/weekLabel';
 
 // Shown to a member when the league admin changed their picks (so nothing
 // changes behind their back). Each notice can be dismissed; dismissals are
@@ -60,7 +61,7 @@ export default function EditNotice({ token, leagueId, userName, gamesByWeek = {}
           <div key={e.id} role="status" className="rounded-card border border-blue-200 bg-blue-50 px-4 py-3">
             <div className="flex items-start justify-between gap-3">
               <p className="text-xs text-blue-900">
-                <strong>{e.admin_user}</strong> (league admin) updated your Week {e.week} picks
+                <strong>{e.admin_user}</strong> (league admin) updated your {weekLabel(e.week)} picks
                 <span className="text-blue-900/70"> · {whenText(e.changed_at)}</span>
               </p>
               <button type="button" onClick={() => dismiss(e.id)} aria-label="Dismiss this notice"

@@ -3,6 +3,7 @@
 
 import { calculateSeasonStandings } from './leaderboard';
 import { buildPickEvents, rankMembers } from './insights';
+import { weekLabel, isBowlWeek } from './weekLabel';
 
 const sideLabel = (game, ev) => {
   if (!game) return `Game ${ev.gameId}`;
@@ -43,11 +44,11 @@ export function buildRecap({ leagueName, week, seasonRows = [], gamesByWeek = {}
   if (board.length === 0) return null;
 
   const lines = [];
-  lines.push(`🏈 ${leagueName ? `${leagueName} — ` : ''}Week ${week} recap${finalGames < games.length ? ` (${finalGames}/${games.length} games final)` : ''}`);
+  lines.push(`🏈 ${leagueName ? `${leagueName} — ` : ''}${weekLabel(week)} recap${finalGames < games.length ? ` (${finalGames}/${games.length} games final)` : ''}`);
 
   const top = board[0].points;
   const winners = board.filter((s) => s.points === top).map((s) => s.member);
-  lines.push(`🏆 Week ${winners.length > 1 ? 'winners' : 'winner'}: ${names(winners)} (${top} pt${top === 1 ? '' : 's'})`);
+  lines.push(`🏆 ${isBowlWeek(week) ? 'Bowl week' : 'Week'} ${winners.length > 1 ? 'winners' : 'winner'}: ${names(winners)} (${top} pt${top === 1 ? '' : 's'})`);
 
   const ranks = rankMembers(board.map((s) => ({ userName: s.member, totalPoints: s.points, wins: s.wins, losses: s.losses })));
   lines.push('', 'This week:');

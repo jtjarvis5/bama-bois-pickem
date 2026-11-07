@@ -1,6 +1,8 @@
 import { supabase } from '../supabaseClient';
 import { pickRankings } from '../utils/rankings';
 import { attachWeather, cfbdVenue, NFL_VENUES } from './weather';
+import { FIRST_BOWL_WEEK } from '../utils/weekLabel';
+import { bowlWeekFor } from '../utils/getCurrentWeek';
 
 // CFBD is reached through our own /api/cfbd proxy (api/cfbd.js) so the API
 // key stays on the server instead of shipping in the browser bundle.
@@ -148,7 +150,11 @@ function fetchVenueMap() {
 }
 
 async function fetchCFBGames(year, week, pinnedIds = null) {
-  const gamesRes = await cfbd('games', { year, week, seasonType: 'regular' });
+  // Bowl season (weeks 16+) is one CFBD "postseason" list, split here into
+  // weekly stages by kickoff date. Regular season keeps the per-week query.
+  const bowl = week >= FIRST_BOWL_WEEK;
+  const seasonQuery = bowl ? { year, seasonType: 'postseason' } : { year, week, seasonType: 'regular' };
+  const gamesRes = await cfbd('games', seasonQuery);
   if (!gamesRes.ok) {
     const bodyText = await gamesRes.text().catch(() => '');
     throw new Error(`CFBD /games request failed with status ${gamesRes.status}. ${bodyText.slice(0, 300)}`);
@@ -157,14 +163,19 @@ async function fetchCFBGames(year, week, pinnedIds = null) {
   if (!Array.isArray(gamesData)) {
     throw new Error('CFBD /games returned an unexpected response.');
   }
+  // Bowl pairings are announced in stages; games with no teams yet can't be
+  // picked, and only the games of this stage belong to this week.
+  const gamesList = bowl
+    ? gamesData.filter((g) => g.homeTeam && g.awayTeam && bowlWeekFor(g.startDate) === week)
+    : gamesData;
 
   // The remaining lookups don't depend on each other, so run them together
   // instead of one after another (a slow provider used to add up).
   const [linesData, rankMap, recordsMap, logoMap, venueMap] = await Promise.all([
-    cfbd('lines', { year, week, seasonType: 'regular' })
+    cfbd('lines', seasonQuery)
       .then((r) => (r.ok ? r.json() : []))
       .catch(() => []),
-    fetchRankings(year, week),
+    fetchRankings(year, bowl ? 99 : week), // bowls: the latest poll
     fetchRecords(year),
     getCFBLogoMap(),
     fetchVenueMap(),
@@ -178,7 +189,7 @@ async function fetchCFBGames(year, week, pinnedIds = null) {
     });
   }
 
-  const formattedEntries = gamesData.map(g => {
+  const formattedEntries = gamesList.map(g => {
     const line = linesMap[g.id] || { spread: 0, overUnder: null };
     const isBama = g.homeTeam === 'Alabama' || g.awayTeam === 'Alabama';
     const homeSpread = line.spread ?? 0;
@@ -231,6 +242,7 @@ async function fetchCFBGames(year, week, pinnedIds = null) {
     };
     const venue = venueMap[g.venueId];
     if (venue) game.venue = venue;
+    if (bowl && g.notes) game.note = String(g.notes).slice(0, 80); // e.g. "Rose Bowl - CFP Quarterfinal"
 
     return {
       game,
@@ -240,6 +252,15 @@ async function fetchCFBGames(year, week, pinnedIds = null) {
   });
 
   const formattedGames = formattedEntries.map((e) => e.game);
+
+  // Bowl season: everyone picks every game, in kickoff order. No "top 9" cut
+  // and no pinning -- the stage simply is whatever games it has.
+  if (bowl) {
+    return formattedEntries
+      .filter((e) => e.fbsVsFbs)
+      .map((e) => e.game)
+      .sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
+  }
 
   // Pinned slate: the games for this week were already chosen (and people
   // may have picked on them), so skip selection entirely and just return
@@ -524,7 +545,7 @@ export async function getWeeklyGames(year, week, sport = 'CFB', onUpdate = null)
     // Cache missing or stale -- this is the only branch that spends CFBD
     // quota (for CFB) or hits ESPN (for NFL, which has no quota concern).
     // NFL always shows the full slate, so only CFB needs pinning.
-    const pinnedIds = (sport === 'CFB' && cached?.games?.length && await isSlateLocked(cached.games, week, sport))
+    const pinnedIds = (sport === 'CFB' && week < FIRST_BOWL_WEEK && cached?.games?.length && await isSlateLocked(cached.games, week, sport))
       ? cached.games.map((g) => g.id)
       : null;
 
@@ -564,6 +585,13 @@ export async function getWeeklyGames(year, week, sport = 'CFB', onUpdate = null)
       const freshById = {};
       freshGames.forEach((g) => { freshById[g.id] = g; });
       slate = pinnedIds.map((id) => freshById[id] ?? previousGamesById[id]).filter(Boolean);
+    }
+    // Bowl stages can lose a game on a rescheduling or a provider hiccup;
+    // keep our last copy so any picks on it stay attached.
+    if (sport === 'CFB' && week >= FIRST_BOWL_WEEK) {
+      const have = new Set(slate.map((g) => String(g.id)));
+      const kept = (cached?.games || []).filter((g) => !have.has(String(g.id)));
+      slate = [...slate, ...kept].sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
     }
     const oddsMerged = slate.map((g) => mergeGameOdds(g, previousGamesById));
 

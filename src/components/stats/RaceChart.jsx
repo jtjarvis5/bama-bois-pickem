@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { COLORS, Section, Panel, Segmented, LineKey, ScrollX, niceTicks } from './ui';
+import { weekLabel } from '../../utils/weekLabel';
 
 const H = 240;
 const PAD = { top: 16, right: 92, bottom: 28, left: 34 };
@@ -99,7 +100,7 @@ export default function RaceChart({ weeks, series, order, focus }) {
               <thead>
                 <tr className="text-xs text-muted border-b border-line">
                   <th scope="col" className="py-2 pr-3 font-semibold">Member</th>
-                  {weeks.map((w) => <th key={w} scope="col" className="py-2 px-2 font-semibold text-right">Week {w}</th>)}
+                  {weeks.map((w) => <th key={w} scope="col" className="py-2 px-2 font-semibold text-right">{weekLabel(w)}</th>)}
                 </tr>
               </thead>
               <tbody>

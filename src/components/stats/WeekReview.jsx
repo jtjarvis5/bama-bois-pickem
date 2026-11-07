@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { buildWeeklyChalk, findBiggestUpset, rankWeekPerformance } from '../../utils/analytics';
 import { isGameLocked } from '../../utils/getCurrentWeek';
 import { Section, Panel } from './ui';
+import { weekLabel } from '../../utils/weekLabel';
 
 function ChalkBar({ leftLabel, leftPct, rightLabel, rightPct, winner }) {
   // winner: 'left' | 'right' | null. The winning side is filled crimson once graded.
@@ -57,7 +58,7 @@ export default function WeekReview({ weeks, seasonPicks, gamesByWeek, members })
           onChange={(e) => setPicked(Number(e.target.value))}
           className="bg-white border border-line rounded-full px-3 py-1.5 text-sm font-medium text-ink focus:outline-none focus:ring-2 focus:ring-crimson/30"
         >
-          {weeks.map((w) => <option key={w} value={w}>Week {w}</option>)}
+          {weeks.map((w) => <option key={w} value={w}>{weekLabel(w)}</option>)}
         </select>
       }
     >
