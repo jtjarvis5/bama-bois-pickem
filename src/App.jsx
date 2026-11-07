@@ -14,6 +14,9 @@ import AdminPage from './components/AdminPage';
 import EditNotice from './components/EditNotice';
 import PicksDueBanner from './components/PicksDueBanner';
 import WeatherLine from './components/WeatherLine';
+import LivePickStatus from './components/LivePickStatus';
+import LiveStandings from './components/LiveStandings';
+import { useLiveGames } from './hooks/useLiveGames';
 import PushToggle from './components/PushToggle';
 import { hasSpreadLock, hasTotalLock, lockBonusValue } from './utils/scoring';
 
@@ -118,6 +121,9 @@ export default function App() {
   const weekOptions = activeLeague?.sport === 'NFL'
     ? Array.from({ length: 18 }, (_, i) => i + 1)
     : Array.from({ length: showBowls ? FIRST_BOWL_WEEK + BOWL_WEEKS : FIRST_BOWL_WEEK }, (_, i) => i);
+
+  // Games with live scores laid over them while something is being played.
+  const liveGames = useLiveGames(games, activeLeague?.sport);
 
   useEffect(() => {
     async function initLeagues() {
@@ -608,8 +614,15 @@ export default function App() {
           </button>
         </div>
 
+        <LiveStandings
+          games={liveGames}
+          entries={allLeaguePicks}
+          members={activeStandingsMembers}
+          currentUser={selectedUser}
+        />
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
-          {games.map(game => {
+          {liveGames.map(game => {
             const lockedByKickoff = isGameLocked(game.startDate);
             const isFinal = game.status === 'FINAL';
             
@@ -662,8 +675,11 @@ export default function App() {
                   <div className="text-sm font-display font-semibold text-ink mb-3 bg-paper/50 py-2 px-3 rounded-lg text-center">
                     {game.awayTeam} <span className="text-crimson mx-1">{game.awayScore}</span> - <span className="text-crimson mx-1">{game.homeScore}</span> {game.homeTeam}
                     {!isFinal && <span className="ml-2 text-[10px] font-sans font-bold text-emerald-600 align-middle">LIVE</span>}
+                    {!isFinal && game.liveDetail && <span className="ml-1.5 text-[10px] font-sans font-medium text-muted align-middle">{game.liveDetail}</span>}
                   </div>
                 )}
+
+                {!isFinal && <LivePickStatus game={game} pick={picks[game.id]} />}
 
                 <div className="text-xs font-semibold text-muted mb-1.5 uppercase tracking-wide">Spread</div>
                 <div className="flex items-center gap-2 mb-2">
