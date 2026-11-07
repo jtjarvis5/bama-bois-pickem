@@ -197,7 +197,10 @@ export default function App() {
       if (loadedSlateKey.current !== slateKey) setGames([]);
       try {
         setApiError(null);
-        const liveGames = await getWeeklyGames(SEASON_YEAR, weekNum, activeLeague.sport);
+        const liveGames = await getWeeklyGames(SEASON_YEAR, weekNum, activeLeague.sport, (fresh) => {
+          // background refresh of a slate we already showed from the saved copy
+          if (!cancelled && fresh?.length) { loadedSlateKey.current = slateKey; setGames(fresh); }
+        });
         if (cancelled) return;
         if (liveGames && liveGames.length > 0) {
           loadedSlateKey.current = slateKey;

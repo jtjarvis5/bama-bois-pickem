@@ -1,4 +1,5 @@
 import { supabase } from '../supabaseClient';
+import { pickRankings } from '../utils/rankings';
 
 // CFBD is reached through our own /api/cfbd proxy (api/cfbd.js) so the API
 // key stays on the server instead of shipping in the browser bundle.
@@ -11,7 +12,8 @@ function cfbd(path, params = {}) {
 // ==========================================
 
 /**
- * AP Top 25 for a week, falling back to the most recent poll released at or
+ * Rankings for a week (College Football Playoff once released, otherwise AP),
+ * falling back to the most recent poll released at or
  * before that week. One call fetches every poll of the season (no week
  * param), so looking "back" costs nothing extra -- we just pick the right
  * entry. If the requested week is earlier than any poll (e.g. Week 0), we
@@ -28,20 +30,7 @@ async function fetchRankings(year, week) {
     const data = await res.json();
     if (!Array.isArray(data)) return {};
 
-    const withAP = data
-      .map((entry) => ({
-        week: entry.week,
-        poll: entry.polls?.find((p) => p.poll === 'AP Top 25'),
-      }))
-      .filter((e) => e.poll?.ranks?.length);
-    if (withAP.length === 0) return {};
-
-    const atOrBefore = withAP.filter((e) => e.week <= week).sort((a, b) => b.week - a.week);
-    const chosen = atOrBefore[0] || withAP.sort((a, b) => a.week - b.week)[0];
-
-    const rankMap = {};
-    chosen.poll.ranks.forEach((r) => { rankMap[r.school] = r.rank; });
-    return rankMap;
+    return pickRankings(data, week);
   } catch (err) {
     console.error('Rankings fetch failed, falling back to Elo/unranked ordering:', err);
     return {};
@@ -140,12 +129,20 @@ async function fetchCFBGames(year, week, pinnedIds = null) {
     throw new Error(`CFBD /games request failed with status ${gamesRes.status}. ${bodyText.slice(0, 300)}`);
   }
   const gamesData = await gamesRes.json();
+  if (!Array.isArray(gamesData)) {
+    throw new Error('CFBD /games returned an unexpected response.');
+  }
 
-  const linesRes = await cfbd('lines', { year, week, seasonType: 'regular' });
-  const linesData = linesRes.ok ? await linesRes.json() : [];
-  const rankMap = await fetchRankings(year, week);
-  const recordsMap = await fetchRecords(year);
-  const logoMap = await getCFBLogoMap();
+  // The remaining lookups don't depend on each other, so run them together
+  // instead of one after another (a slow provider used to add up).
+  const [linesData, rankMap, recordsMap, logoMap] = await Promise.all([
+    cfbd('lines', { year, week, seasonType: 'regular' })
+      .then((r) => (r.ok ? r.json() : []))
+      .catch(() => []),
+    fetchRankings(year, week),
+    fetchRecords(year),
+    getCFBLogoMap(),
+  ]);
 
   const linesMap = {};
   if (Array.isArray(linesData)) {
@@ -463,7 +460,7 @@ async function isSlateLocked(cachedGames, week, sport) {
   return (count ?? 0) > 0;
 }
 
-export async function getWeeklyGames(year, week, sport = 'CFB') {
+export async function getWeeklyGames(year, week, sport = 'CFB', onUpdate = null) {
   const cacheKey = `${sport}-${year}-${week}`;
 
   const { data: cached, error: readError } = await supabase
@@ -485,56 +482,77 @@ export async function getWeeklyGames(year, week, sport = 'CFB') {
     }
   }
 
-  // Cache missing or stale -- this is the only branch that spends CFBD
-  // quota (for CFB) or hits ESPN (for NFL, which has no quota concern).
-  // NFL always shows the full slate, so only CFB needs pinning.
-  const pinnedIds = (sport === 'CFB' && cached?.games?.length && await isSlateLocked(cached.games, week, sport))
-    ? cached.games.map((g) => g.id)
-    : null;
+  const refresh = async () => {
+    // Cache missing or stale -- this is the only branch that spends CFBD
+    // quota (for CFB) or hits ESPN (for NFL, which has no quota concern).
+    // NFL always shows the full slate, so only CFB needs pinning.
+    const pinnedIds = (sport === 'CFB' && cached?.games?.length && await isSlateLocked(cached.games, week, sport))
+      ? cached.games.map((g) => g.id)
+      : null;
 
-  let freshGames;
-  try {
-    freshGames = await fetchWeeklyGames(year, week, sport, pinnedIds);
-  } catch (err) {
-    // The data provider is down or overloaded (e.g. a 502). The last saved
-    // copy of the week is slightly out of date but far better than an error
-    // screen. fetched_at is left alone, so the next visit tries again.
-    if (cached?.games?.length) {
-      console.warn('Game data source unavailable; showing the last saved games:', err.message);
+    let freshGames;
+    try {
+      freshGames = await fetchWeeklyGames(year, week, sport, pinnedIds);
+    } catch (err) {
+      // The data provider is down or overloaded (e.g. a 502). The last saved
+      // copy of the week is slightly out of date but far better than an error
+      // screen. fetched_at is left alone, so the next visit tries again.
+      if (cached?.games?.length) {
+        console.warn('Game data source unavailable; showing the last saved games:', err.message);
+        return cached.games;
+      }
+      throw err;
+    }
+
+    // An empty answer while we hold a saved slate means the provider hiccuped
+    // (it sometimes returns 200 with nothing under load). Keep what we have and
+    // do not overwrite it.
+    if (!freshGames?.length && cached?.games?.length) {
+      console.warn('Game data source returned no games; showing the last saved games.');
       return cached.games;
     }
-    throw err;
+
+    // Protect against the odds-disappearing-after-kickoff issue: merge each
+    // fresh game against whatever we had cached before, preferring real
+    // spread/total values over ones that came back zeroed/missing.
+    const previousGamesById = {};
+    (cached?.games || []).forEach((g) => { previousGamesById[g.id] = g; });
+
+    // When pinned, keep the cached order, and if CFBD omitted a pinned game
+    // this time (rescheduled, API hiccup) keep our last copy rather than
+    // letting it -- and its picks -- disappear.
+    let slate = freshGames;
+    if (pinnedIds) {
+      const freshById = {};
+      freshGames.forEach((g) => { freshById[g.id] = g; });
+      slate = pinnedIds.map((id) => freshById[id] ?? previousGamesById[id]).filter(Boolean);
+    }
+    const mergedGames = slate.map((g) => mergeGameOdds(g, previousGamesById));
+
+    const { error: writeError } = await supabase
+      .from('games_cache')
+      .upsert(
+        { cache_key: cacheKey, year, week, sport, games: mergedGames, fetched_at: new Date().toISOString() },
+        { onConflict: 'cache_key' }
+      );
+
+    if (writeError) {
+      console.error('Failed to write games_cache (check the table/policy exist):', writeError);
+    }
+
+    return mergedGames;
+  };
+
+  // Stale but present: show the saved copy straight away and refresh in the
+  // background, handing the fresh slate to onUpdate when it arrives. Nothing
+  // saved yet: there is nothing to show, so wait for the live fetch.
+  if (cached?.games?.length && typeof onUpdate === 'function') {
+    refresh()
+      .then((fresh) => { if (fresh && fresh !== cached.games) onUpdate(fresh); })
+      .catch(() => {});
+    return cached.games;
   }
-
-  // Protect against the odds-disappearing-after-kickoff issue: merge each
-  // fresh game against whatever we had cached before, preferring real
-  // spread/total values over ones that came back zeroed/missing.
-  const previousGamesById = {};
-  (cached?.games || []).forEach((g) => { previousGamesById[g.id] = g; });
-
-  // When pinned, keep the cached order, and if CFBD omitted a pinned game
-  // this time (rescheduled, API hiccup) keep our last copy rather than
-  // letting it -- and its picks -- disappear.
-  let slate = freshGames;
-  if (pinnedIds) {
-    const freshById = {};
-    freshGames.forEach((g) => { freshById[g.id] = g; });
-    slate = pinnedIds.map((id) => freshById[id] ?? previousGamesById[id]).filter(Boolean);
-  }
-  const mergedGames = slate.map((g) => mergeGameOdds(g, previousGamesById));
-
-  const { error: writeError } = await supabase
-    .from('games_cache')
-    .upsert(
-      { cache_key: cacheKey, year, week, sport, games: mergedGames, fetched_at: new Date().toISOString() },
-      { onConflict: 'cache_key' }
-    );
-
-  if (writeError) {
-    console.error('Failed to write games_cache (check the table/policy exist):', writeError);
-  }
-
-  return mergedGames;
+  return refresh();
 }
 
 /**
