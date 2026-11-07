@@ -1,5 +1,6 @@
 import { supabase } from '../supabaseClient';
 import { pickRankings } from '../utils/rankings';
+import { attachWeather, cfbdVenue, NFL_VENUES } from './weather';
 
 // CFBD is reached through our own /api/cfbd proxy (api/cfbd.js) so the API
 // key stays on the server instead of shipping in the browser bundle.
@@ -122,6 +123,30 @@ async function getCFBLogoMap() {
   return Object.keys(freshLogos).length > 0 ? freshLogos : (cached?.logos || {});
 }
 
+// Stadium coordinates + dome flag by CFBD venue id. They never change, so keep
+// them for the life of the page; the edge caches the proxy response for a day.
+// Weather is a nice-to-have, so any failure here just means no weather.
+let venueMapPromise = null;
+function fetchVenueMap() {
+  if (!venueMapPromise) {
+    venueMapPromise = cfbd('venues')
+      .then((r) => (r.ok ? r.json() : []))
+      .then((list) => {
+        const map = {};
+        if (Array.isArray(list)) {
+          list.forEach((v) => {
+            const venue = cfbdVenue(v);
+            if (venue && v.id != null) map[v.id] = venue;
+          });
+        }
+        if (Object.keys(map).length === 0) venueMapPromise = null; // try again next time
+        return map;
+      })
+      .catch(() => { venueMapPromise = null; return {}; });
+  }
+  return venueMapPromise;
+}
+
 async function fetchCFBGames(year, week, pinnedIds = null) {
   const gamesRes = await cfbd('games', { year, week, seasonType: 'regular' });
   if (!gamesRes.ok) {
@@ -135,13 +160,14 @@ async function fetchCFBGames(year, week, pinnedIds = null) {
 
   // The remaining lookups don't depend on each other, so run them together
   // instead of one after another (a slow provider used to add up).
-  const [linesData, rankMap, recordsMap, logoMap] = await Promise.all([
+  const [linesData, rankMap, recordsMap, logoMap, venueMap] = await Promise.all([
     cfbd('lines', { year, week, seasonType: 'regular' })
       .then((r) => (r.ok ? r.json() : []))
       .catch(() => []),
     fetchRankings(year, week),
     fetchRecords(year),
     getCFBLogoMap(),
+    fetchVenueMap(),
   ]);
 
   const linesMap = {};
@@ -203,6 +229,8 @@ async function fetchCFBGames(year, week, pinnedIds = null) {
       winningSpreadTeam,
       winningTotal
     };
+    const venue = venueMap[g.venueId];
+    if (venue) game.venue = venue;
 
     return {
       game,
@@ -300,7 +328,17 @@ async function fetchNFLGames(year, week) {
       }
     }
 
+    // Stadium for the forecast. International games (London, etc.) are skipped:
+    // the home team's usual stadium would be the wrong place.
+    const espnVenue = competition.venue;
+    const abroad = espnVenue?.address?.country && !/^(usa|us|united states)$/i.test(espnVenue.address.country);
+    const known = NFL_VENUES[homeTeamData.team.abbreviation];
+    const venue = known && !abroad
+      ? { name: espnVenue?.fullName || null, lat: known.lat, lon: known.lon, dome: espnVenue?.indoor ?? Boolean(known.dome) }
+      : null;
+
     return {
+      ...(venue ? { venue } : {}),
       id: parseInt(event.id, 10),
       isBama: false,
       homeTeam: homeTeamData.team.displayName,
@@ -527,7 +565,11 @@ export async function getWeeklyGames(year, week, sport = 'CFB', onUpdate = null)
       freshGames.forEach((g) => { freshById[g.id] = g; });
       slate = pinnedIds.map((id) => freshById[id] ?? previousGamesById[id]).filter(Boolean);
     }
-    const mergedGames = slate.map((g) => mergeGameOdds(g, previousGamesById));
+    const oddsMerged = slate.map((g) => mergeGameOdds(g, previousGamesById));
+
+    // Kickoff forecasts, one batched request. Never throws; on failure each
+    // game keeps whatever weather it already had.
+    const mergedGames = await attachWeather(oddsMerged, previousGamesById);
 
     const { error: writeError } = await supabase
       .from('games_cache')

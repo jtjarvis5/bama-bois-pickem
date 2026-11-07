@@ -19,6 +19,7 @@ const ROUTES = {
   rankings:   { params: ['year', 'week', 'seasonType'], sMaxAge: 1800 },
   records:    { params: ['year'],                       sMaxAge: 1800 },
   'teams/fbs': { params: [],                            sMaxAge: 86400 },
+  venues:     { params: [],                            sMaxAge: 86400 },
 };
 
 const VALID = {
