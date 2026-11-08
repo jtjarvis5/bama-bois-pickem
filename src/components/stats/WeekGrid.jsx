@@ -1,3 +1,4 @@
+import { defaultWeekName } from '../../utils/weekLabel';
 import { HEAT, Section, Panel, StarIcon, ScrollX, plural } from './ui';
 
 // 0 points is its own quiet neutral; anything above spreads across the ramp.
@@ -8,7 +9,7 @@ function bucketFor(points, max) {
 }
 
 /** Points per member per week: who is consistent, who is streaky, who won each week. */
-export default function WeekGrid({ grid, order, focus, totals }) {
+export default function WeekGrid({ grid, order, focus, totals, weekName = defaultWeekName }) {
   const { weeks, points, winners, weeksWon, maxPoints } = grid;
   if (!weeks.length) return null;
 
@@ -26,7 +27,7 @@ export default function WeekGrid({ grid, order, focus, totals }) {
                 <th scope="col" className="sticky left-0 z-10 bg-white text-left font-semibold pr-3 py-1 min-w-[5.5rem]">Member</th>
                 {weeks.map(({ week, complete }) => (
                   <th key={week} scope="col" className="font-semibold w-11 min-w-[2.75rem] py-1 text-center">
-                    W{week}
+                    {weekName.short(week)}
                     {!complete && <span className="block text-[10px] font-normal text-muted/80">live</span>}
                   </th>
                 ))}
@@ -50,7 +51,7 @@ export default function WeekGrid({ grid, order, focus, totals }) {
                     const pts = points[m][week];
                     const bucket = bucketFor(pts, maxPoints);
                     const won = winners[week].includes(m);
-                    const label = `${m}, week ${week}: ${plural(pts, 'point')}${won ? (complete ? ', won the week' : ', leading this week') : ''}`;
+                    const label = `${m}, ${weekName.long(week)}: ${plural(pts, 'point')}${won ? (complete ? ', won the week' : ', leading this week') : ''}`;
                     return (
                       <td key={week} className="p-0">
                         <div

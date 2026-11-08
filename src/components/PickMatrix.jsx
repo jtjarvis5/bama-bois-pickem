@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { isGameLocked } from '../utils/getCurrentWeek';
 import { rankWeekPerformance } from '../utils/analytics';
 import { hasSpreadLock, hasTotalLock } from '../utils/scoring';
@@ -37,7 +38,9 @@ function LockGlyph() {
   );
 }
 
-export default function PickMatrix({ games = [], allLeaguePicks = [], currentUser, allMembers = [] }) {
+export default function PickMatrix({ games = [], allLeaguePicks = [], currentUser, allMembers: membersInput = [] }) {
+  // Column order: season standings (as passed in) or this week's points.
+  const [sortBy, setSortBy] = useState('standings');
   const picksByUser = {};
   allLeaguePicks.forEach((row) => {
     picksByUser[row.user_name] = row.picks || {};
@@ -51,7 +54,7 @@ export default function PickMatrix({ games = [], allLeaguePicks = [], currentUse
     );
   }
 
-  if (!allMembers || allMembers.length === 0) {
+  if (!membersInput || membersInput.length === 0) {
     return (
       <div className="rounded-card border border-line bg-white p-6 text-center text-sm text-muted">
         Waiting for members to join...
@@ -62,9 +65,13 @@ export default function PickMatrix({ games = [], allLeaguePicks = [], currentUse
   // Week totals use the same grading as Season Standings (lock bonus
   // included) and only count FINAL games -- which have already kicked off,
   // so this can never reveal a hidden pick.
-  const weekRanking = rankWeekPerformance(allLeaguePicks, games, allMembers);
+  const weekRanking = rankWeekPerformance(allLeaguePicks, games, membersInput);
   const pointsByMember = {};
   weekRanking.forEach((r) => { pointsByMember[r.userName] = r.points; });
+  // Sort by points high-to-low; ties keep standings order (stable sort).
+  const allMembers = sortBy === 'points'
+    ? [...membersInput].sort((a, b) => (pointsByMember[b] ?? 0) - (pointsByMember[a] ?? 0))
+    : membersInput;
   const topPoints = weekRanking.length ? weekRanking[0].points : 0;
   const weekIsOver = games.length > 0 && games.every((g) => g.status === 'FINAL');
 
@@ -76,6 +83,22 @@ export default function PickMatrix({ games = [], allLeaguePicks = [], currentUse
   };
 
   return (
+    <>
+    <div className="flex items-center gap-2 mb-2 text-xs">
+      <span className="text-muted font-medium">Order columns by</span>
+      {[['standings', 'Season standings'], ['points', 'This week\'s points']].map(([key, label]) => (
+        <button
+          key={key}
+          onClick={() => setSortBy(key)}
+          aria-pressed={sortBy === key}
+          className={`px-3 py-1 rounded-full border font-medium transition-colors ${
+            sortBy === key ? 'bg-ink text-white border-ink' : 'border-line text-muted hover:border-ink/30'
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
     <div className="rounded-card border border-line bg-white overflow-x-auto shadow-sm">
       <table className="w-full text-left border-collapse text-xs">
         <thead>
@@ -208,5 +231,6 @@ export default function PickMatrix({ games = [], allLeaguePicks = [], currentUse
         </tfoot>
       </table>
     </div>
+    </>
   );
 }

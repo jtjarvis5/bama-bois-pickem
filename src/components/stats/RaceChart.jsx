@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { COLORS, Section, Panel, Segmented, LineKey, ScrollX, niceTicks } from './ui';
-import { weekLabel } from '../../utils/weekLabel';
+import { defaultWeekName } from '../../utils/weekLabel';
 
 const H = 240;
 const PAD = { top: 16, right: 92, bottom: 28, left: 34 };
@@ -15,7 +15,7 @@ const short = (name) => (name.length > 10 ? `${name.slice(0, 9)}…` : name);
  * leader in ink, everyone else in quiet grey. Hover or arrow-keys read out
  * every member for a week; "Table" shows the same numbers as plain text.
  */
-export default function RaceChart({ weeks, series, order, focus }) {
+export default function RaceChart({ weeks, series, order, focus, weekName = defaultWeekName }) {
   const [view, setView] = useState('chart');
   const [hover, setHover] = useState(null);
 
@@ -100,7 +100,7 @@ export default function RaceChart({ weeks, series, order, focus }) {
               <thead>
                 <tr className="text-xs text-muted border-b border-line">
                   <th scope="col" className="py-2 pr-3 font-semibold">Member</th>
-                  {weeks.map((w) => <th key={w} scope="col" className="py-2 px-2 font-semibold text-right">{weekLabel(w)}</th>)}
+                  {weeks.map((w) => <th key={w} scope="col" className="py-2 px-2 font-semibold text-right">{weekName.long(w)}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -140,7 +140,7 @@ export default function RaceChart({ weeks, series, order, focus }) {
                   </g>
                 ))}
                 {weeks.map((w, i) => (
-                  <text key={w} x={xFor(i)} y={H - 8} fontSize="11" textAnchor="middle" fill={COLORS.axis}>W{w}</text>
+                  <text key={w} x={xFor(i)} y={H - 8} fontSize="11" textAnchor="middle" fill={COLORS.axis}>{weekName.short(w)}</text>
                 ))}
 
                 {hover != null && (
@@ -185,7 +185,7 @@ export default function RaceChart({ weeks, series, order, focus }) {
                     transform: hover > (weeks.length - 1) / 2 ? 'translateX(calc(-100% - 12px))' : 'translateX(12px)',
                   }}
                 >
-                  <div className="text-xs text-muted mb-1">After week {weeks[hover]}</div>
+                  <div className="text-xs text-muted mb-1">After {weekName.long(weeks[hover])}</div>
                   {readout.map(({ m, pt }) => (
                     <div key={m} className="flex items-center gap-2 text-xs leading-5">
                       <LineKey color={styleFor(m).color} width={styleFor(m).w > 2 ? 3 : 2} />

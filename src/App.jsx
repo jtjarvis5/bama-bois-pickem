@@ -16,6 +16,9 @@ import PicksDueBanner from './components/PicksDueBanner';
 import WeatherLine from './components/WeatherLine';
 import LivePickStatus from './components/LivePickStatus';
 import LiveStandings from './components/LiveStandings';
+import CombinedPage from './components/CombinedPage';
+import { buildPickEvents, summarizeMembers } from './utils/insights';
+import { streakTag } from './utils/badges';
 import { useLiveGames } from './hooks/useLiveGames';
 import PushToggle from './components/PushToggle';
 import { hasSpreadLock, hasTotalLock, lockBonusValue } from './utils/scoring';
@@ -443,6 +446,11 @@ export default function App() {
   const toggleTotalLock = (gameId) => toggleLock(gameId, 'totalLock', hasTotalLock);
 
   const standings = calculateSeasonStandings(seasonPicks, gamesByWeek, activeStandingsMembers);
+  // 🔥/🧊 next to anyone on a 3+ streak of decided picks.
+  const streakTags = useMemo(() => {
+    const sums = summarizeMembers(buildPickEvents(seasonPicks, gamesByWeek, activeStandingsMembers), activeStandingsMembers);
+    return Object.fromEntries(activeStandingsMembers.map((m) => [m, streakTag(sums[m])]));
+  }, [seasonPicks, gamesByWeek, activeStandingsMembers]);
   const spreadLockedId = Object.keys(picks).find((id) => hasSpreadLock(picks[id]));
   const spreadLockedGame = games.find((g) => g.id.toString() === spreadLockedId?.toString());
   const totalLockedId = Object.keys(picks).find((id) => hasTotalLock(picks[id]));
@@ -535,7 +543,7 @@ export default function App() {
 
       <main className="max-w-4xl mx-auto px-5 py-6">
         <div className="flex gap-2 mb-5">
-          {[['games', 'Games'], ['stats', 'Stats'], ...(isAdmin ? [['admin', 'Admin']] : [])].map(([key, label]) => (
+          {[['games', 'Games'], ['stats', 'Stats'], ...(leagues.length > 1 ? [['combined', 'Combined']] : []), ...(isAdmin ? [['admin', 'Admin']] : [])].map(([key, label]) => (
             <button
               key={key}
               onClick={() => setActiveTab(key)}
@@ -770,7 +778,10 @@ export default function App() {
               {standings.map((member, idx) => (
                 <tr key={member.userName} className="border-b border-line last:border-0 hover:bg-paper/30 transition-colors">
                   <td className="p-3 font-display font-semibold text-ink">{idx + 1}</td>
-                  <td className="p-3 font-medium">{member.userName}</td>
+                  <td className="p-3 font-medium">
+                    {member.userName}
+                    {streakTags[member.userName] && <span className="ml-1.5 text-xs" title="Current streak (3+ in a row)">{streakTags[member.userName]}</span>}
+                  </td>
                   <td className="p-3 text-muted">{member.wins}-{member.losses}-{member.pushes}</td>
                   <td className="p-3">
                     {member.lockBonuses > 0
@@ -810,6 +821,15 @@ export default function App() {
               setPicksReloadTick((t) => t + 1);
               setSeasonReloadTick((t) => t + 1);
             }}
+          />
+        )}
+
+        {activeTab === 'combined' && leagues.length > 1 && (
+          <CombinedPage
+            token={token}
+            leagues={leagues}
+            viewer={currentUser?.name}
+            currentUser={selectedUser}
           />
         )}
 

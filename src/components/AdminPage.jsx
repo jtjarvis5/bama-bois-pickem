@@ -13,7 +13,7 @@ import { gamesForWeek } from './admin/shared';
 const TABS = [
   ['status', 'Status'],
   ['edit', 'Edit'],
-  ['recap', 'Recap'],
+  ['recap', 'Recap / Preview'],
   ['members', 'Members'],
   ['export', 'Export'],
   ['log', 'Log'],
@@ -68,7 +68,7 @@ export default function AdminPage({
       )}
       {tab === 'recap' && (
         <Recap token={token} leagueId={leagueId} leagueName={leagueName} week={week} setWeek={setWeek} weeks={weeks}
-          gamesByWeek={gamesByWeek} members={members} />
+          gamesByWeek={gamesByWeek} weekGames={weekGames} members={members} />
       )}
       {tab === 'members' && <Members token={token} leagueId={leagueId} leagueName={leagueName} onChanged={membersChanged} onLeagueDeleted={onLeagueDeleted} />}
       {tab === 'export' && (

@@ -10,6 +10,8 @@ import WeekGrid from './stats/WeekGrid';
 import SkillSplit from './stats/SkillSplit';
 import LockTable from './stats/LockTable';
 import StyleTable from './stats/StyleTable';
+import TrophyCase from './stats/TrophyCase';
+import { buildBadges } from '../utils/badges';
 import WeekReview from './stats/WeekReview';
 
 /**
@@ -17,7 +19,7 @@ import WeekReview from './stats/WeekReview';
  * to (that member is highlighted throughout); `viewer` is the person actually
  * logged in, used only to say "Your season" instead of "Alice's season".
  */
-export default function StatsPage({ seasonPicks = [], gamesByWeek = {}, allMembers = [], currentUser, viewer }) {
+export default function StatsPage({ seasonPicks = [], gamesByWeek = {}, allMembers = [], currentUser, viewer, weekName }) {
   const model = useMemo(() => {
     const standings = calculateSeasonStandings(seasonPicks, gamesByWeek, allMembers)
       .filter((s) => allMembers.includes(s.userName));
@@ -27,8 +29,9 @@ export default function StatsPage({ seasonPicks = [], gamesByWeek = {}, allMembe
     const grid = buildWeekGrid(events, gamesByWeek, allMembers);
     const { weeks, series } = buildWeeklySeries(seasonPicks, gamesByWeek, allMembers);
     const totals = Object.fromEntries(standings.map((s) => [s.userName, s.totalPoints]));
+    const awards = buildBadges({ events, grid, summaries, members: allMembers, gamesByWeek }).awards;
     return {
-      standings, order, summaries, grid, weeks, series, totals,
+      standings, order, summaries, grid, weeks, series, totals, awards,
       superlatives: buildSuperlatives(summaries, grid, allMembers),
     };
   }, [seasonPicks, gamesByWeek, allMembers]);
@@ -41,7 +44,7 @@ export default function StatsPage({ seasonPicks = [], gamesByWeek = {}, allMembe
     );
   }
 
-  const { standings, order, summaries, grid, weeks, series, totals, superlatives } = model;
+  const { standings, order, summaries, grid, weeks, series, totals, superlatives, awards } = model;
   const focus = allMembers.includes(currentUser) ? currentUser : null;
   const standing = focus ? describeStanding(focus, standings) : null;
 
@@ -56,12 +59,13 @@ export default function StatsPage({ seasonPicks = [], gamesByWeek = {}, allMembe
         />
       )}
       <Superlatives items={superlatives} viewer={viewer} />
-      <RaceChart weeks={weeks} series={series} order={order} focus={focus} />
-      <WeekGrid grid={grid} order={order} focus={focus} totals={totals} />
+      <TrophyCase awards={awards} viewer={viewer} weekName={weekName} />
+      <RaceChart weeks={weeks} series={series} order={order} focus={focus} weekName={weekName} />
+      <WeekGrid grid={grid} order={order} focus={focus} totals={totals} weekName={weekName} />
       <SkillSplit order={order} summaries={summaries} focus={focus} />
       <LockTable order={order} summaries={summaries} focus={focus} />
       <StyleTable order={order} summaries={summaries} focus={focus} />
-      <WeekReview weeks={weeks} seasonPicks={seasonPicks} gamesByWeek={gamesByWeek} members={allMembers} />
+      <WeekReview weeks={weeks} seasonPicks={seasonPicks} gamesByWeek={gamesByWeek} members={allMembers} weekName={weekName} />
     </div>
   );
 }

@@ -2,7 +2,8 @@
 // same graded events as the Stats tab, so the numbers always match the app.
 
 import { calculateSeasonStandings } from './leaderboard';
-import { buildPickEvents, rankMembers } from './insights';
+import { buildPickEvents, rankMembers, summarizeMembers } from './insights';
+import { streakTag } from './badges';
 import { weekLabel, isBowlWeek } from './weekLabel';
 
 const sideLabel = (game, ev) => {
@@ -69,6 +70,44 @@ export function buildRecap({ leagueName, week, seasonRows = [], gamesByWeek = {}
   if (brave.length) {
     lines.push('', 'Won against the crowd:');
     brave.slice(0, 5).forEach((e) => lines.push(`💪 ${e.member}: ${sideLabel(byId[String(e.gameId)], e)}`));
+  }
+
+  // ---- extras: how the league did, perfect/rough weeks, streaks, crowd burns ----
+  const pct = (w, l) => (w + l > 0 ? `${Math.round((w / (w + l)) * 100)}%` : null);
+  const tally = (kind) => events.filter((e) => e.kind === kind).reduce(
+    (a, e) => ({ w: a.w + (e.result === 'win' ? 1 : 0), l: a.l + (e.result === 'loss' ? 1 : 0) }), { w: 0, l: 0 });
+  const sp = tally('spread');
+  const tt = tally('total');
+  const rates = [pct(sp.w, sp.l) && `${pct(sp.w, sp.l)} on spreads`, pct(tt.w, tt.l) && `${pct(tt.w, tt.l)} on totals`].filter(Boolean);
+  if (rates.length) lines.push('', `📊 The league went ${rates.join(' and ')}`);
+
+  const MIN_PICKS = 4;
+  const perfect = board.filter((s) => s.losses === 0 && s.wins >= MIN_PICKS);
+  if (perfect.length) lines.push(`🎯 Perfect ${isBowlWeek(week) ? 'bowl week' : 'week'}: ${perfect.map((s) => `${s.member} (${s.wins}-0)`).join(', ')}`);
+  const enough = board.filter((s) => s.wins + s.losses >= MIN_PICKS);
+  if (enough.length > 1 && finalGames === games.length) {
+    const low = Math.min(...enough.map((s) => s.points));
+    if (low < top) lines.push(`🥶 Rough week: ${enough.filter((s) => s.points === low).map((s) => `${s.member} (${s.wins}-${s.losses})`).join(', ')}`);
+  }
+
+  // Streaks, counted through this week.
+  const upTo = buildPickEvents(seasonRows, gamesByWeek, members).filter((e) => e.week <= week);
+  const sums = summarizeMembers(upTo, members);
+  const hot = members.filter((m) => streakTag(sums[m]).startsWith('🔥')).sort((a, b) => sums[b].currentStreak.length - sums[a].currentStreak.length);
+  const cold = members.filter((m) => streakTag(sums[m]).startsWith('🧊')).sort((a, b) => sums[b].currentStreak.length - sums[a].currentStreak.length);
+  if (hot.length) lines.push(`🔥 Hot: ${hot.map((m) => `${m} (${sums[m].currentStreak.length} straight)`).join(', ')}`);
+  if (cold.length) lines.push(`🧊 Cold: ${cold.map((m) => `${m} (${sums[m].currentStreak.length} misses)`).join(', ')}`);
+
+  // Games where the majority was wrong (3+ people on the same side, all lost).
+  const burned = [];
+  const groups = {};
+  events.forEach((e) => { if (e.crowd === 'with') (groups[`${e.gameId}:${e.kind}`] ||= []).push(e); });
+  Object.values(groups).forEach((g) => {
+    if (g.length >= 3 && g.every((e) => e.result === 'loss')) burned.push(g);
+  });
+  if (burned.length) {
+    lines.push('', 'The crowd got burned:');
+    burned.slice(0, 3).forEach((g) => lines.push(`💀 ${sideLabel(byId[String(g[0].gameId)], g[0])} (${g.length} of you were on it)`));
   }
 
   // Season table and movement since last week.

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { buildWeeklyChalk, findBiggestUpset, rankWeekPerformance } from '../../utils/analytics';
 import { isGameLocked } from '../../utils/getCurrentWeek';
 import { Section, Panel } from './ui';
-import { weekLabel } from '../../utils/weekLabel';
+import { defaultWeekName } from '../../utils/weekLabel';
 
 function ChalkBar({ leftLabel, leftPct, rightLabel, rightPct, winner }) {
   // winner: 'left' | 'right' | null. The winning side is filled crimson once graded.
@@ -23,7 +23,7 @@ function ChalkBar({ leftLabel, leftPct, rightLabel, rightPct, winner }) {
 }
 
 /** One week at a glance: who had the best and worst week, the upset, and how the league split. */
-export default function WeekReview({ weeks, seasonPicks, gamesByWeek, members }) {
+export default function WeekReview({ weeks, seasonPicks, gamesByWeek, members, weekName = defaultWeekName }) {
   // `weeks` is a list of week numbers; whether the chosen week is still in play comes from its games.
   const [picked, setPicked] = useState(null);
   const latest = weeks[weeks.length - 1];
@@ -58,7 +58,7 @@ export default function WeekReview({ weeks, seasonPicks, gamesByWeek, members })
           onChange={(e) => setPicked(Number(e.target.value))}
           className="bg-white border border-line rounded-full px-3 py-1.5 text-sm font-medium text-ink focus:outline-none focus:ring-2 focus:ring-crimson/30"
         >
-          {weeks.map((w) => <option key={w} value={w}>{weekLabel(w)}</option>)}
+          {weeks.map((w) => <option key={w} value={w}>{weekName.long(w)}</option>)}
         </select>
       }
     >
