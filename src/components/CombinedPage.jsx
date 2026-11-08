@@ -3,22 +3,28 @@ import * as api from '../services/api';
 import { getCachedGamesByWeek } from '../services/gameCache';
 import { SEASON_YEAR } from '../utils/getCurrentWeek';
 import { calculateSeasonStandings } from '../utils/leaderboard';
-import { buildPickEvents, summarizeMembers, rankMembers } from '../utils/insights';
+import { buildWeeklySeries } from '../utils/analytics';
+import { buildPickEvents, summarizeMembers } from '../utils/insights';
 import { streakTag } from '../utils/badges';
-import { combineLeagues } from '../utils/combined';
-import StatsPage from './StatsPage';
+import { combineLeagues, buildCalendarSeries, calendarWeekStart, leagueLabels } from '../utils/combined';
+import { buildSportSplit, buildWeeklyWinners, rankByPoints } from '../utils/crossLeague';
+import RaceChart from './stats/RaceChart';
 import StreakTag from './StreakTag';
+import { SportSplit, WeeklyWinners, HeadToHead } from './CombinedSections';
 
 const RELOAD_MS = 60 * 1000;
 
-// Everyone's combined season across every league they're in: one leaderboard
-// (with each league's share of the points) and the full stats page computed
-// over all of it. Totals are exactly the sum of the leagues' own standings.
+// What only makes sense across leagues: one overall leaderboard (each league's
+// share of the points), who is better at which sport, a race on a shared
+// calendar, who won each week overall, and head to head between any two members.
+// Per-league detail (awards, week grid, style tables) stays on each league's
+// own Stats tab, where it means something.
 export default function CombinedPage({ token, leagues = [], viewer, currentUser }) {
   const [data, setData] = useState(null); // [{ league, picks, gamesByWeek, members }]
   const [skipped, setSkipped] = useState([]);
   const [error, setError] = useState('');
   const [tick, setTick] = useState(0);
+  const [raceSport, setRaceSport] = useState('ALL');
   const leagueKey = leagues.map((l) => l.id).join(',');
 
   const load = useCallback(async () => {
@@ -31,22 +37,31 @@ export default function CombinedPage({ token, leagues = [], viewer, currentUser 
         ]);
         return { league, picks: picks || [], gamesByWeek: gamesByWeek || {}, members: members || [] };
       } catch (err) {
-        return { league, failed: api.friendlyError ? api.friendlyError(err) : String(err) };
+        return { league, failed: true };
       }
     }));
+    const loaded = results.filter((r) => !r.failed);
     // Only leagues the viewer plays in (or that don't record members at all).
-    const mine = results.filter((r) => !r.failed).filter((r) => (
+    const mine = loaded.filter((r) => (
       !viewer || r.members.length === 0 || r.members.includes(viewer) || r.picks.some((p) => p.user_name === viewer)
     ));
-    setData(mine);
-    setSkipped(results.filter((r) => r.failed).map((r) => r.league.name));
-    setError(mine.length === 0 ? 'No leagues to combine yet.' : '');
+    return { mine, failed: results.filter((r) => r.failed).map((r) => r.league.name), hidden: loaded.length - mine.length };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, leagueKey, viewer]);
 
   useEffect(() => {
     let cancelled = false;
-    const run = () => load().catch((err) => { if (!cancelled) setError(String(err?.message || err)); });
+    const run = async () => {
+      try {
+        const { mine, failed } = await load();
+        if (cancelled) return;
+        setData(mine);
+        setSkipped(failed);
+        setError(mine.length === 0 ? 'No leagues to combine yet.' : '');
+      } catch (err) {
+        if (!cancelled) setError(String(err?.message || err));
+      }
+    };
     run();
     const timer = setInterval(() => { if (document.visibilityState === 'visible') run(); }, RELOAD_MS);
     return () => { cancelled = true; clearInterval(timer); };
@@ -55,46 +70,70 @@ export default function CombinedPage({ token, leagues = [], viewer, currentUser 
   const model = useMemo(() => {
     if (!data || data.length === 0) return null;
     const combined = combineLeagues(data);
-    const standings = calculateSeasonStandings(combined.seasonPicks, combined.gamesByWeek, combined.members)
-      .filter((s) => combined.members.includes(s.userName))
-      .sort((a, b) => b.totalPoints - a.totalPoints || b.wins - a.wins || a.userName.localeCompare(b.userName));
-    const ranks = rankMembers(standings);
+    const { members } = combined;
+    const labels = leagueLabels(data);
 
-    // Each league's own points, for the breakdown columns.
-    const sports = new Set(data.map((d) => d.league.sport));
+    // Per-league points and who actually played in each league (for dashes).
     const columns = data.map((d) => {
-      const own = calculateSeasonStandings(d.picks, d.gamesByWeek, combined.members);
+      const own = calculateSeasonStandings(d.picks, d.gamesByWeek, members);
+      const played = new Set([...d.members, ...d.picks.map((p) => p.user_name)]);
       return {
         key: d.league.id,
-        label: sports.size > 1 ? d.league.sport : d.league.name,
+        label: labels[d.league.id],
+        sport: d.league.sport,
+        played,
         points: Object.fromEntries(own.map((s) => [s.userName, s.totalPoints])),
       };
     });
 
-    const summaries = summarizeMembers(
-      buildPickEvents(combined.seasonPicks, combined.gamesByWeek, combined.members), combined.members);
-    return { combined, standings, ranks, columns, summaries };
+    const standings = calculateSeasonStandings(combined.seasonPicks, combined.gamesByWeek, members)
+      .filter((s) => members.includes(s.userName))
+      .sort((a, b) => b.totalPoints - a.totalPoints || a.userName.localeCompare(b.userName));
+    const ranks = rankByPoints(Object.fromEntries(standings.map((s) => [s.userName, s.totalPoints])));
+    const order = standings.map((s) => s.userName);
+
+    const events = buildPickEvents(combined.seasonPicks, combined.gamesByWeek, members);
+    const summaries = summarizeMembers(events, members);
+    const split = buildSportSplit(data, members);
+    const perUnit = buildWeeklySeries(combined.seasonPicks, combined.gamesByWeek, members);
+    const winners = buildWeeklyWinners({ units: combined.units, perUnit, members, startOf: calendarWeekStart });
+    return { combined, standings, ranks, order, columns, summaries, events, split, perUnit, winners, labels };
   }, [data]);
+
+  const race = useMemo(() => {
+    if (!model) return null;
+    const sports = new Set(model.combined.units.map((u) => u.league.sport));
+    const include = raceSport === 'ALL' ? () => true : (u) => u.league.sport === raceSport;
+    return { sports: [...sports], ...buildCalendarSeries({
+      units: model.combined.units, perUnit: model.perUnit, members: model.combined.members, include,
+    }) };
+  }, [model, raceSport]);
 
   if (!model) {
     return (
       <div className="rounded-card border border-line bg-white p-8 text-center text-sm text-muted">
-        {error || 'Loading both leagues…'}
+        {error || 'Loading your leagues...'}
       </div>
     );
   }
 
-  const { combined, standings, ranks, columns, summaries } = model;
-  const anyGraded = standings.some((s) => s.wins + s.losses + s.pushes > 0);
+  const { combined, standings, ranks, order, columns, summaries, events, split, winners, labels } = model;
+  const leaderPoints = standings[0]?.totalPoints ?? 0;
+  const partial = skipped.length > 0;
 
   return (
     <div>
-      <h2 className="font-display text-lg font-semibold text-ink mb-1">Combined leaderboard</h2>
+      <h2 className="font-display text-lg font-semibold text-ink mb-1">Overall leaderboard</h2>
       <p className="text-xs text-muted mb-3 max-w-prose">
-        Points from {data.length === 1 ? 'your league' : `all ${data.length} leagues`} added together{skipped.length ? ` (couldn't load ${skipped.join(', ')})` : ''}.
+        {data.length === 1 ? 'One league so far. ' : `Points from ${data.length} leagues added together. `}
         Each league still scores on its own; this just adds them up.
         <button type="button" onClick={() => setTick((t) => t + 1)} className="ml-2 underline">Refresh</button>
       </p>
+      {partial && (
+        <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 text-amber-900 text-sm px-3 py-2 mb-3">
+          Could not load {skipped.join(', ')}, so these totals are partial.
+        </div>
+      )}
 
       <div className="rounded-card border border-line bg-white overflow-hidden overflow-x-auto shadow-sm mb-10">
         <table className="w-full text-left border-collapse text-sm">
@@ -105,26 +144,27 @@ export default function CombinedPage({ token, leagues = [], viewer, currentUser 
               {columns.map((c) => (
                 <th key={c.key} className="p-3 font-semibold uppercase tracking-wider text-right">{c.label}</th>
               ))}
-              <th className="p-3 font-semibold uppercase tracking-wider">W-L-P</th>
               <th className="p-3 font-semibold uppercase tracking-wider text-right">Total</th>
+              <th className="p-3 font-semibold uppercase tracking-wider text-right">Behind</th>
             </tr>
           </thead>
           <tbody>
             {standings.map((s) => {
               const r = ranks[s.userName];
-              const tag = streakTag(summaries[s.userName]);
               return (
                 <tr key={s.userName} className={`border-b border-line last:border-0 ${s.userName === viewer ? 'bg-paper/40' : ''}`}>
                   <td className="p-3 font-display font-semibold text-ink">{r.tied ? 'T' : ''}{r.rank}</td>
-                  <td className="p-3 font-medium">
+                  <td className="p-3 font-medium whitespace-nowrap">
                     {s.userName}
-                    <StreakTag tag={tag} />
+                    <StreakTag tag={streakTag(summaries[s.userName])} />
                   </td>
                   {columns.map((c) => (
-                    <td key={c.key} className="p-3 text-right text-muted">{c.points[s.userName] ?? 0}</td>
+                    <td key={c.key} className="p-3 text-right text-muted">
+                      {c.played.has(s.userName) ? (c.points[s.userName] ?? 0) : '-'}
+                    </td>
                   ))}
-                  <td className="p-3 text-muted">{s.wins}-{s.losses}-{s.pushes}</td>
                   <td className="p-3 text-right font-display font-bold text-lg text-ink">{s.totalPoints}</td>
+                  <td className="p-3 text-right text-muted">{leaderPoints - s.totalPoints > 0 ? leaderPoints - s.totalPoints : '-'}</td>
                 </tr>
               );
             })}
@@ -132,15 +172,36 @@ export default function CombinedPage({ token, leagues = [], viewer, currentUser 
         </table>
       </div>
 
-      {anyGraded && <h2 className="font-display text-lg font-semibold text-ink mb-1">Stats across both leagues</h2>}
-      <StatsPage
-        seasonPicks={combined.seasonPicks}
-        gamesByWeek={combined.gamesByWeek}
-        allMembers={combined.members}
-        currentUser={currentUser}
-        viewer={viewer}
-        weekName={combined.weekName}
-      />
+      <SportSplit split={split} columns={columns} members={order} viewer={viewer} />
+
+      {race && race.weeks.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <p className="text-xs text-muted">Weeks run Tuesday to Monday, so both sports share one timeline.</p>
+            {race.sports.length > 1 && (
+              <div className="flex gap-1.5 shrink-0">
+                {['ALL', ...race.sports].map((sp) => (
+                  <button
+                    key={sp}
+                    type="button"
+                    onClick={() => setRaceSport(sp)}
+                    aria-pressed={raceSport === sp}
+                    className={`px-3 py-1 rounded-full border text-xs font-medium ${
+                      raceSport === sp ? 'bg-ink text-white border-ink' : 'border-line text-muted hover:border-ink/30'}`}
+                  >
+                    {sp === 'ALL' ? 'Both' : sp}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <RaceChart weeks={race.weeks} series={race.series} order={order} focus={order.includes(currentUser) ? currentUser : null} weekName={race.weekName} />
+        </div>
+      )}
+
+      <WeeklyWinners winners={winners} order={order} viewer={viewer} />
+
+      <HeadToHead combined={combined} events={events} members={order} viewer={viewer} labels={labels} />
     </div>
   );
 }
