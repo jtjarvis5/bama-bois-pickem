@@ -16,11 +16,11 @@ const addResult = (rec, result) => {
   else if (result === 'push') rec.pushes += 1;
 };
 
-/** "🔥6" for a win streak of 3+, "🧊4" for a loss streak of 3+, else ''. */
+/** "W6" for a win streak of 3+, "L4" for a loss streak of 3+, else ''. */
 export function streakTag(summary) {
   const s = summary?.currentStreak;
   if (!s || s.length < MIN_STREAK) return '';
-  return s.type === 'win' ? `🔥${s.length}` : s.type === 'loss' ? `🧊${s.length}` : '';
+  return s.type === 'win' ? `W${s.length}` : s.type === 'loss' ? `L${s.length}` : '';
 }
 
 function topBy(members, valueOf, { lowest = false } = {}) {
@@ -37,14 +37,14 @@ function topBy(members, valueOf, { lowest = false } = {}) {
 
 /**
  * Returns { awards, tags }.
- *  awards: [{ key, icon, title, names, detail }]  (league-wide trophy case)
- *  tags:   { member: '🔥6' | '🧊4' | '' }
+ *  awards: [{ key, title, names, detail }]  (league-wide trophy case)
+ *  tags:   { member: 'W6' | 'L4' | '' }
  * `weekNameLong` names a week in details (the combined page passes its own).
  */
 export function buildBadges({ events = [], grid, summaries = {}, members = [], gamesByWeek = {}, weekNameLong = weekLabel }) {
   const awards = [];
-  const add = (key, icon, title, top, detail) => {
-    if (top && top.names.length <= 3) awards.push({ key, icon, title, names: top.names, detail: detail(top) });
+  const add = (key, title, top, detail) => {
+    if (top && top.names.length <= 3) awards.push({ key, title, names: top.names, detail: detail(top) });
   };
 
   const tags = {};
@@ -53,9 +53,9 @@ export function buildBadges({ events = [], grid, summaries = {}, members = [], g
   // Hot / cold right now
   const hot = members.filter((m) => summaries[m]?.currentStreak.type === 'win' && summaries[m].currentStreak.length >= MIN_STREAK);
   const cold = members.filter((m) => summaries[m]?.currentStreak.type === 'loss' && summaries[m].currentStreak.length >= MIN_STREAK);
-  add('hot', '🔥', 'On fire right now', topBy(hot, (m) => summaries[m].currentStreak.length),
+  add('hot', 'On fire right now', topBy(hot, (m) => summaries[m].currentStreak.length),
     (t) => `${t.value} picks in a row`);
-  add('cold', '🧊', 'Ice cold right now', topBy(cold, (m) => summaries[m].currentStreak.length),
+  add('cold', 'Ice cold right now', topBy(cold, (m) => summaries[m].currentStreak.length),
     (t) => `${t.value} misses in a row`);
 
   // Per member, per completed week: decided picks and losses.
@@ -72,7 +72,7 @@ export function buildBadges({ events = [], grid, summaries = {}, members = [], g
   members.forEach((m) => {
     perfect[m] = Object.values(wk[m] || {}).filter((r) => r.losses === 0 && r.wins >= MIN_WEEK_PICKS).length;
   });
-  add('perfect', '🎯', 'Perfect weeks', topBy(members, (m) => (perfect[m] > 0 ? perfect[m] : null)),
+  add('perfect', 'Perfect weeks', topBy(members, (m) => (perfect[m] > 0 ? perfect[m] : null)),
     (t) => `${t.value} week${t.value === 1 ? '' : 's'} without a miss`);
 
   // Roughest week: fewest points in a finished week, among people who made enough picks.
@@ -92,7 +92,7 @@ export function buildBadges({ events = [], grid, summaries = {}, members = [], g
     worst.entries.forEach((e) => { if (!firstFor.has(e.m) || e.week < firstFor.get(e.m)) firstFor.set(e.m, e.week); });
     if (firstFor.size <= 2) {
       awards.push({
-        key: 'worst', icon: '🥶', title: 'Roughest week',
+        key: 'worst', title: 'Roughest week',
         names: [...firstFor.keys()],
         detail: [...firstFor.entries()].map(([m, w]) => `${firstFor.size > 1 ? `${m}: ` : ''}${worst.pts} pt${worst.pts === 1 ? '' : 's'} in ${weekNameLong(w)}`).join(', '),
       });
@@ -100,7 +100,7 @@ export function buildBadges({ events = [], grid, summaries = {}, members = [], g
   }
 
   // Underdog lover: highest share of spread picks on the dog.
-  add('dogs', '🐶', 'Underdog lover',
+  add('dogs', 'Underdog lover',
     topBy(members.filter((m) => {
       const s = summaries[m]; if (!s) return false;
       return n(s.dog) + n(s.fav) >= MIN_DOG_PICKS;
@@ -121,9 +121,9 @@ export function buildBadges({ events = [], grid, summaries = {}, members = [], g
   const bamaPool = members.filter((m) => decided(bama[m]) >= MIN_BAMA_PICKS);
   const bestBama = topBy(bamaPool, (m) => winRate(bama[m]));
   const worstBama = topBy(bamaPool, (m) => winRate(bama[m]), { lowest: true });
-  add('bama-best', '🐘', 'Best on Bama games', bestBama, (t) => `${formatRecord(bama[t.names[0]])} on Alabama games`);
+  add('bama-best', 'Best on Bama games', bestBama, (t) => `${formatRecord(bama[t.names[0]])} on Alabama games`);
   if (bestBama && worstBama && worstBama.value < bestBama.value) {
-    add('bama-worst', '🙈', 'Bama blind spot', worstBama, (t) => `${formatRecord(bama[t.names[0]])} on Alabama games`);
+    add('bama-worst', 'Bama blind spot', worstBama, (t) => `${formatRecord(bama[t.names[0]])} on Alabama games`);
   }
 
   return { awards, tags };

@@ -16,8 +16,7 @@ export default function TrophyCase({ awards = [], viewer }) {
       <Panel>
         <ul className="divide-y divide-line">
           {awards.map((a) => (
-            <li key={a.key} className="px-4 py-3 flex items-start gap-3">
-              <span className="text-xl leading-none mt-0.5" aria-hidden="true">{a.icon}</span>
+            <li key={a.key} className="px-4 py-3">
               <div className="min-w-0">
                 <div className="text-sm text-muted">{a.title}</div>
                 <div className="text-sm text-ink">

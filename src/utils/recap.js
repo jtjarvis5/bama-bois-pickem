@@ -93,8 +93,8 @@ export function buildRecap({ leagueName, week, seasonRows = [], gamesByWeek = {}
   // Streaks, counted through this week.
   const upTo = buildPickEvents(seasonRows, gamesByWeek, members).filter((e) => e.week <= week);
   const sums = summarizeMembers(upTo, members);
-  const hot = members.filter((m) => streakTag(sums[m]).startsWith('🔥')).sort((a, b) => sums[b].currentStreak.length - sums[a].currentStreak.length);
-  const cold = members.filter((m) => streakTag(sums[m]).startsWith('🧊')).sort((a, b) => sums[b].currentStreak.length - sums[a].currentStreak.length);
+  const hot = members.filter((m) => streakTag(sums[m]).startsWith('W')).sort((a, b) => sums[b].currentStreak.length - sums[a].currentStreak.length);
+  const cold = members.filter((m) => streakTag(sums[m]).startsWith('L')).sort((a, b) => sums[b].currentStreak.length - sums[a].currentStreak.length);
   if (hot.length) lines.push(`🔥 Hot: ${hot.map((m) => `${m} (${sums[m].currentStreak.length} straight)`).join(', ')}`);
   if (cold.length) lines.push(`🧊 Cold: ${cold.map((m) => `${m} (${sums[m].currentStreak.length} misses)`).join(', ')}`);
 

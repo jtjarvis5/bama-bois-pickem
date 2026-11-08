@@ -60,12 +60,12 @@ const sums = summarizeMembers(events, c.members);
 const grid = buildWeekGrid(events, c.gamesByWeek, c.members);
 const { awards, tags } = buildBadges({ events, grid, summaries: sums, members: c.members, gamesByWeek: c.gamesByWeek, weekNameLong: c.weekName.long });
 const A = Object.fromEntries(awards.map((a) => [a.key, a]));
-check('Jack on a hot streak tag (🔥 N>=3)', /^🔥\d+$/.test(tags.Jack), tags);
-check('Noah ice cold tag', /^🧊\d+$/.test(tags.Noah), tags);
+check('Jack on a hot streak tag (W N>=3)', /^W\d+$/.test(tags.Jack), tags);
+check('Noah ice cold tag', /^L\d+$/.test(tags.Noah), tags);
 check('hot award goes to the longest current streak (Jarrett: 17 straight across both leagues)', A.hot?.names.join() === 'Jarrett' && /17 picks in a row/.test(A.hot.detail), A.hot);
 check('perfect week: Jack (8 wins, 0 losses) in CFB wk1 + wk2', A.perfect?.names.join() === 'Jack' && /2 weeks/.test(A.perfect.detail), A.perfect);
 check('roughest week uses the combined week name', A.worst && /CFB Week|NFL Week/.test(A.worst.detail), A.worst);
-check('streakTag thresholds', streakTag({ currentStreak: { type: 'win', length: 2 } }) === '' && streakTag({ currentStreak: { type: 'win', length: 3 } }) === '🔥3' && streakTag({ currentStreak: { type: 'loss', length: 5 } }) === '🧊5' && streakTag(undefined) === '');
+check('streakTag thresholds', streakTag({ currentStreak: { type: 'win', length: 2 } }) === '' && streakTag({ currentStreak: { type: 'win', length: 3 } }) === 'W3' && streakTag({ currentStreak: { type: 'loss', length: 5 } }) === 'L5' && streakTag(undefined) === '');
 const thin = buildBadges({ events: [], grid: { weeks: [], points: {}, winners: {}, weeksWon: {} }, summaries: Object.fromEntries(M.map((m) => [m, sums.Jack && { ...sums.Nick, currentStreak: { type: null, length: 0 } }])), members: M, gamesByWeek: {} });
 check('no sample -> no awards', thin.awards.length === 0, thin.awards);
 

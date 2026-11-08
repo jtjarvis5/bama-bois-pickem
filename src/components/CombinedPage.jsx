@@ -7,6 +7,7 @@ import { buildPickEvents, summarizeMembers, rankMembers } from '../utils/insight
 import { streakTag } from '../utils/badges';
 import { combineLeagues } from '../utils/combined';
 import StatsPage from './StatsPage';
+import StreakTag from './StreakTag';
 
 const RELOAD_MS = 60 * 1000;
 
@@ -117,7 +118,7 @@ export default function CombinedPage({ token, leagues = [], viewer, currentUser 
                   <td className="p-3 font-display font-semibold text-ink">{r.tied ? 'T' : ''}{r.rank}</td>
                   <td className="p-3 font-medium">
                     {s.userName}
-                    {tag && <span className="ml-1.5 text-xs" title="Current streak">{tag}</span>}
+                    <StreakTag tag={tag} />
                   </td>
                   {columns.map((c) => (
                     <td key={c.key} className="p-3 text-right text-muted">{c.points[s.userName] ?? 0}</td>

@@ -16,6 +16,7 @@ import PicksDueBanner from './components/PicksDueBanner';
 import WeatherLine from './components/WeatherLine';
 import LivePickStatus from './components/LivePickStatus';
 import LiveStandings from './components/LiveStandings';
+import StreakTag from './components/StreakTag';
 import CombinedPage from './components/CombinedPage';
 import { buildPickEvents, summarizeMembers } from './utils/insights';
 import { streakTag } from './utils/badges';
@@ -446,7 +447,7 @@ export default function App() {
   const toggleTotalLock = (gameId) => toggleLock(gameId, 'totalLock', hasTotalLock);
 
   const standings = calculateSeasonStandings(seasonPicks, gamesByWeek, activeStandingsMembers);
-  // 🔥/🧊 next to anyone on a 3+ streak of decided picks.
+  // W3+/L3+ tag next to anyone on a streak of decided picks.
   const streakTags = useMemo(() => {
     const sums = summarizeMembers(buildPickEvents(seasonPicks, gamesByWeek, activeStandingsMembers), activeStandingsMembers);
     return Object.fromEntries(activeStandingsMembers.map((m) => [m, streakTag(sums[m])]));
@@ -780,7 +781,7 @@ export default function App() {
                   <td className="p-3 font-display font-semibold text-ink">{idx + 1}</td>
                   <td className="p-3 font-medium">
                     {member.userName}
-                    {streakTags[member.userName] && <span className="ml-1.5 text-xs" title="Current streak (3+ in a row)">{streakTags[member.userName]}</span>}
+                    <StreakTag tag={streakTags[member.userName]} />
                   </td>
                   <td className="p-3 text-muted">{member.wins}-{member.losses}-{member.pushes}</td>
                   <td className="p-3">
