@@ -130,9 +130,14 @@ const kickoffMs = (g) => {
   return Number.isFinite(t) ? t : Infinity;
 };
 
-/** Games in kickoff order (ties keep a stable order by id). Never mutates its input. */
+/**
+ * Display order for a slate: Alabama's game pinned first, then everything else
+ * by kickoff (ties keep a stable order by id). Never mutates its input.
+ */
 export function sortByKickoff(games = []) {
-  return [...games].sort((a, b) => kickoffMs(a) - kickoffMs(b) || Number(a?.id) - Number(b?.id));
+  return [...games].sort((a, b) => (b?.isBama ? 1 : 0) - (a?.isBama ? 1 : 0)
+    || kickoffMs(a) - kickoffMs(b)
+    || Number(a?.id) - Number(b?.id));
 }
 
 // Stadium coordinates + dome flag by CFBD venue id. They never change, so keep
@@ -291,8 +296,8 @@ async function fetchCFBGames(year, week, pinnedIds = null) {
     .map((e) => e.game);
   const topGames = rankedOthers.slice(0, 9);
 
-  // Importance decides which games make the cut; kickoff time alone decides
-  // the order they're shown in (Bama's game included).
+  // Importance decides which games make the cut; Bama's game is pinned first
+  // and the rest are shown in kickoff order.
   return sortByKickoff(bamaGame ? [bamaGame, ...topGames] : rankedOthers.slice(0, 10));
 }
 
