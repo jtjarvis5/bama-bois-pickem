@@ -125,6 +125,16 @@ async function getCFBLogoMap() {
   return Object.keys(freshLogos).length > 0 ? freshLogos : (cached?.logos || {});
 }
 
+const kickoffMs = (g) => {
+  const t = new Date(g?.startDate).getTime();
+  return Number.isFinite(t) ? t : Infinity;
+};
+
+/** Games in kickoff order (ties keep a stable order by id). Never mutates its input. */
+export function sortByKickoff(games = []) {
+  return [...games].sort((a, b) => kickoffMs(a) - kickoffMs(b) || Number(a?.id) - Number(b?.id));
+}
+
 // Stadium coordinates + dome flag by CFBD venue id. They never change, so keep
 // them for the life of the page; the edge caches the proxy response for a day.
 // Weather is a nice-to-have, so any failure here just means no weather.
@@ -268,7 +278,7 @@ async function fetchCFBGames(year, week, pinnedIds = null) {
   // of the week, so this costs no extra CFBD calls.
   if (pinnedIds?.length) {
     const wanted = new Set(pinnedIds.map(String));
-    return formattedGames.filter((g) => wanted.has(String(g.id)));
+    return sortByKickoff(formattedGames.filter((g) => wanted.has(String(g.id))));
   }
 
   const bamaGame = formattedGames.find(g => g.isBama);
@@ -281,12 +291,9 @@ async function fetchCFBGames(year, week, pinnedIds = null) {
     .map((e) => e.game);
   const topGames = rankedOthers.slice(0, 9);
 
-  // Importance decides which games make the cut; time decides the order
-  // they're displayed in, once selected.
-  const byKickoff = (a, b) => new Date(a.startDate) - new Date(b.startDate);
-  const chronologicalTop = [...topGames].sort(byKickoff);
-
-  return bamaGame ? [bamaGame, ...chronologicalTop] : rankedOthers.slice(0, 10).sort(byKickoff);
+  // Importance decides which games make the cut; kickoff time alone decides
+  // the order they're shown in (Bama's game included).
+  return sortByKickoff(bamaGame ? [bamaGame, ...topGames] : rankedOthers.slice(0, 10));
 }
 
 // ==========================================
@@ -520,6 +527,11 @@ async function isSlateLocked(cachedGames, week, sport) {
 }
 
 export async function getWeeklyGames(year, week, sport = 'CFB', onUpdate = null) {
+  const sortedUpdate = typeof onUpdate === 'function' ? (fresh) => onUpdate(sortByKickoff(fresh)) : null;
+  return sortByKickoff(await loadWeeklyGames(year, week, sport, sortedUpdate));
+}
+
+async function loadWeeklyGames(year, week, sport, onUpdate) {
   const cacheKey = `${sport}-${year}-${week}`;
 
   const { data: cached, error: readError } = await supabase
@@ -591,7 +603,7 @@ export async function getWeeklyGames(year, week, sport = 'CFB', onUpdate = null)
     if (sport === 'CFB' && week >= FIRST_BOWL_WEEK) {
       const have = new Set(slate.map((g) => String(g.id)));
       const kept = (cached?.games || []).filter((g) => !have.has(String(g.id)));
-      slate = [...slate, ...kept].sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
+      slate = sortByKickoff([...slate, ...kept]);
     }
     const oddsMerged = slate.map((g) => mergeGameOdds(g, previousGamesById));
 
@@ -645,7 +657,7 @@ export async function getCachedGamesByWeek(year, sport = 'CFB') {
 
   const byWeek = {};
   (data || []).forEach((row) => {
-    byWeek[row.week] = row.games;
+    byWeek[row.week] = sortByKickoff(row.games);
   });
   return byWeek;
 }

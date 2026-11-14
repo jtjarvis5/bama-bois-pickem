@@ -447,6 +447,13 @@ export default function App() {
   const toggleTotalLock = (gameId) => toggleLock(gameId, 'totalLock', hasTotalLock);
 
   const standings = calculateSeasonStandings(seasonPicks, gamesByWeek, activeStandingsMembers);
+  // Members in season-standings order (points, then wins), so Who Picked Who
+  // lines up with the standings table instead of the membership list's order.
+  const standingsOrder = useMemo(() => {
+    const ranked = standings.map((s) => s.userName).filter((m) => activeStandingsMembers.includes(m));
+    const rest = activeStandingsMembers.filter((m) => !ranked.includes(m));
+    return [...ranked, ...rest];
+  }, [standings, activeStandingsMembers]);
   // W3+/L3+ tag next to anyone on a streak of decided picks.
   const streakTags = useMemo(() => {
     const sums = summarizeMembers(buildPickEvents(seasonPicks, gamesByWeek, activeStandingsMembers), activeStandingsMembers);
@@ -760,7 +767,7 @@ export default function App() {
           games={games}
           allLeaguePicks={allLeaguePicks}
           currentUser={selectedUser}
-          allMembers={activeStandingsMembers}
+          allMembers={standingsOrder}
         />
 
         <h2 className="font-display text-lg font-semibold text-ink mt-10 mb-3">Season standings</h2>
