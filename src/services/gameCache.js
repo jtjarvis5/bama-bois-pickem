@@ -262,6 +262,7 @@ async function fetchCFBGames(year, week, pinnedIds = null) {
     return {
       game,
       fbsVsFbs: isFBS(homeClass) && isFBS(awayClass),
+      hasLine,
       score: matchupScore(g, rankMap, hasLine ? homeSpread : null),
     };
   });
@@ -286,10 +287,14 @@ async function fetchCFBGames(year, week, pinnedIds = null) {
     return sortByKickoff(formattedGames.filter((g) => wanted.has(String(g.id))));
   }
 
-  const bamaGame = formattedGames.find(g => g.isBama);
+  // Bama's game is pinned only when it has a betting line: a pick'em on spread
+  // and total needs one. With no line it is dropped and the next-best game
+  // takes its place.
+  const bamaEntry = formattedEntries.find((e) => e.game.isBama);
+  const bamaGame = bamaEntry && bamaEntry.hasLine ? bamaEntry.game : null;
 
   // Never feature an FCS opponent (an FCS game can't be a "top game"), then
-  // take the highest-scoring matchups. Bama's game stays pinned regardless.
+  // take the highest-scoring matchups. Bama's game stays pinned when it has a line.
   const rankedOthers = formattedEntries
     .filter((e) => !e.game.isBama && e.fbsVsFbs)
     .sort((a, b) => b.score - a.score)
