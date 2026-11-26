@@ -34,6 +34,12 @@ const MESSAGES = {
   member_removed: 'That person was removed from the league. Add them back first.',
   cannot_reset_admin: "A league admin's PIN can only be reset by themselves.",
   cannot_remove_admin: "The league's admin can't be removed.",
+  slate_not_editable: 'Only regular-season college weeks can be changed.',
+  slate_not_found: 'That week has no saved games yet. Open it once first.',
+  game_not_in_slate: 'That game is no longer on the slate. Refresh and try again.',
+  game_already_in_slate: 'That game is already on the slate.',
+  game_started: 'A game that has started cannot be swapped in or out.',
+  bad_game: 'That game could not be added.',
 };
 
 export function errorCode(err) {
@@ -143,3 +149,7 @@ export const pushStatus = (token, endpoint) =>
 
 export const adminDeleteLeague = (token, leagueId, confirmName) =>
   rpc('app_admin_delete_league', { p_token: token, p_league_id: leagueId, p_confirm_name: confirmName });
+
+// Swap one game on a CFB week's slate for another (clears picks on the removed game).
+export const adminSwapGame = (token, leagueId, week, removeId, addGame) =>
+  rpc('app_admin_swap_game', { p_token: token, p_league_id: leagueId, p_week: week, p_remove_id: Number(removeId), p_add: addGame });

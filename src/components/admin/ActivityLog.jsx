@@ -9,6 +9,12 @@ import { weekLabel } from '../../utils/weekLabel';
 const ACTIONS = {
   reset_pin: (r) => <><span className="font-medium">{r.admin_user}</span> reset <span className="font-medium">{r.target_user}</span>'s PIN</>,
   add_member: (r) => <><span className="font-medium">{r.admin_user}</span> added <span className="font-medium">{r.target_user}</span></>,
+  swap_game: (r) => {
+    const d = r.detail || {};
+    const name = (g) => (g ? `${g.away} @ ${g.home}` : 'a game');
+    return <><span className="font-medium">{r.admin_user}</span> swapped {name(d.removed)} for {name(d.added)}
+      <span className="text-muted"> ({weekLabel(d.week)}, {d.picks_cleared || 0} pick{d.picks_cleared === 1 ? '' : 's'} cleared)</span></>;
+  },
   remove_member: (r) => <><span className="font-medium">{r.admin_user}</span> removed <span className="font-medium">{r.target_user}</span></>,
 };
 

@@ -164,7 +164,9 @@ function fetchVenueMap() {
   return venueMapPromise;
 }
 
-async function fetchCFBGames(year, week, pinnedIds = null) {
+// Every game of a CFB week, formatted for the app and scored for how
+// worth-picking it is: [{ game, fbsVsFbs, hasLine, score }].
+async function buildCFBEntries(year, week) {
   // Bowl season (weeks 16+) is one CFBD "postseason" list, split here into
   // weekly stages by kickoff date. Regular season keeps the per-week query.
   const bowl = week >= FIRST_BOWL_WEEK;
@@ -267,6 +269,32 @@ async function fetchCFBGames(year, week, pinnedIds = null) {
     };
   });
 
+  return formattedEntries;
+}
+
+/**
+ * Games an admin could swap into a week's slate: FBS vs FBS, not yet kicked
+ * off, best matchups first. `hasLine` is false when no betting line exists.
+ */
+export async function getSwapCandidates(year, week) {
+  const entries = await buildCFBEntries(year, week);
+  const now = Date.now();
+  return entries
+    .filter((e) => e.fbsVsFbs && e.game.status !== 'FINAL' && new Date(e.game.startDate).getTime() > now)
+    .sort((a, b) => b.score - a.score)
+    .map((e) => ({ ...e.game, hasLine: e.hasLine }));
+}
+
+/** A candidate ready to be saved onto a slate: weather attached, helper flag removed. */
+export async function prepareSwapGame(candidate) {
+  const { hasLine, ...game } = candidate; // eslint-disable-line no-unused-vars
+  const [withWeather] = await attachWeather([game]);
+  return withWeather;
+}
+
+async function fetchCFBGames(year, week, pinnedIds = null) {
+  const bowl = week >= FIRST_BOWL_WEEK;
+  const formattedEntries = await buildCFBEntries(year, week);
   const formattedGames = formattedEntries.map((e) => e.game);
 
   // Bowl season: everyone picks every game, in kickoff order. No "top 9" cut

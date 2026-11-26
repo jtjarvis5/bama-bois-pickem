@@ -4,6 +4,7 @@ import Export from './admin/Export';
 import Members from './admin/Members';
 import Recap from './admin/Recap';
 import PicksEditor from './admin/PicksEditor';
+import Slate from './admin/Slate';
 import Status from './admin/Status';
 import { gamesForWeek } from './admin/shared';
 
@@ -13,6 +14,7 @@ import { gamesForWeek } from './admin/shared';
 const TABS = [
   ['status', 'Status'],
   ['edit', 'Edit'],
+  ['slate', 'Slate'],
   ['recap', 'Recap / Preview'],
   ['members', 'Members'],
   ['export', 'Export'],
@@ -20,7 +22,7 @@ const TABS = [
 ];
 
 export default function AdminPage({
-  token, leagueId, leagueName, members = [], games = [], gamesByWeek = {}, defaultWeek, onSaved, onMembersChanged, onLeagueDeleted,
+  token, leagueId, leagueName, members = [], games = [], gamesByWeek = {}, defaultWeek, sport, year, onSaved, onSlateChanged, onMembersChanged, onLeagueDeleted,
 }) {
   const [tab, setTab] = useState('status');
   const [week, setWeek] = useState(defaultWeek);
@@ -65,6 +67,11 @@ export default function AdminPage({
         <PicksEditor token={token} leagueId={leagueId} members={members} games={games} gamesByWeek={gamesByWeek}
           defaultWeek={defaultWeek} weeks={weeks} week={week} setWeek={setWeek}
           member={editMember} setMember={setMember} onSaved={saved} />
+      )}
+      {tab === 'slate' && (
+        <Slate token={token} leagueId={leagueId} sport={sport} year={year} week={week} setWeek={setWeek}
+          weeks={weeks} weekGames={weekGames}
+          onChanged={() => { setBump((b) => b + 1); onSlateChanged?.(); }} />
       )}
       {tab === 'recap' && (
         <Recap token={token} leagueId={leagueId} leagueName={leagueName} week={week} setWeek={setWeek} weeks={weeks}

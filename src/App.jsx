@@ -115,6 +115,7 @@ export default function App() {
   // Bumped to force a re-read of this week's picks from the server (e.g.
   // after the server rejects a save and our local picks are out of date).
   const [picksReloadTick, setPicksReloadTick] = useState(0);
+  const [gamesReloadTick, setGamesReloadTick] = useState(0);
 
   const weekNum = parseInt(selectedWeek.split(' ')[1], 10);
   const activeLeague = leagues.find(l => l.id === selectedLeagueId) || leagues[0];
@@ -235,7 +236,7 @@ export default function App() {
     }
     if (activeLeague) loadGames();
     return () => { cancelled = true; };
-  }, [weekNum, selectedLeagueId, activeLeague]);
+  }, [weekNum, selectedLeagueId, activeLeague, gamesReloadTick]);
 
   // This week's picks. The server hides other members' picks for any game that
   // hasn't kicked off, so what comes back is already safe to show. There is no
@@ -814,6 +815,13 @@ export default function App() {
             games={games}
             gamesByWeek={gamesByWeek}
             defaultWeek={weekNum}
+            sport={activeLeague?.sport}
+            year={SEASON_YEAR}
+            onSlateChanged={() => {
+              setGamesReloadTick((t) => t + 1);
+              setPicksReloadTick((t) => t + 1);
+              setSeasonReloadTick((t) => t + 1);
+            }}
             onSaved={() => {
               setPicksReloadTick((t) => t + 1);
               setSeasonReloadTick((t) => t + 1);
